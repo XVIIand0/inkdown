@@ -28,6 +28,7 @@ files:
   - '!dist.zip'
 asarUnpack:
   - resources/*
+  - node_modules/node-pty/**/*
 artifactName: 'Inkdown-${os}-${arch}.${ext}'
 fileAssociations:
   ext: md

@@ -26,6 +26,7 @@ const state = {
   sidePanelWidth: 300,
   editorFontSize: 16,
   theme: 'system' as 'system' | 'light' | 'dark',
+  activeTheme: 'paper-crane' as string,
   systemDark: isDark(),
   autoConvertInlineFormula: false,
   editorWidth: 720,
@@ -39,7 +40,9 @@ const state = {
   maxHistoryChats: 100,
   codeTabSize: 2,
   showChatBot: false,
-  language: getSystemLanguage() as 'zh' | 'en',
+  claudeCodeMode: true,
+  claudeCodeImportedProjects: [] as string[],
+  language: getSystemLanguage() as 'zh' | 'zh-TW' | 'en',
   modelOptions: {
     temperature: {
       value: 0.7,
@@ -142,12 +145,14 @@ export class SettingsStore extends StructStore<typeof state> {
         }
       }
     })
-    if (this.state.language === 'zh') {
-      i18next.changeLanguage('zh')
-    } else {
-      i18next.changeLanguage('en')
-    }
+    i18next.changeLanguage(this.state.language)
     this.setState({ ready: true })
+    this.changeTheme()
+    if (this.state.activeTheme && this.state.activeTheme !== 'default') {
+      import('../themes/engine').then(({ applyTheme }) => {
+        applyTheme(this.state.activeTheme, this.state.dark)
+      })
+    }
     import('mermaid').then((res) => {
       mermaid = res.default
       mermaid.initialize({
@@ -199,6 +204,11 @@ export class SettingsStore extends StructStore<typeof state> {
     mermaid?.initialize({
       theme: this.state.dark ? 'dark' : 'default'
     })
+    if (this.state.activeTheme && this.state.activeTheme !== 'default') {
+      import('../themes/engine').then(({ applyTheme }) => {
+        applyTheme(this.state.activeTheme, this.state.dark)
+      })
+    }
   }
   async setSetting<T extends typeof state, U extends keyof T>(key: U, value: T[U]) {
     await this.store.model.putSetting({ key: key as string, value })
@@ -220,6 +230,11 @@ export class SettingsStore extends StructStore<typeof state> {
     }
     if (key === 'language') {
       i18next.changeLanguage(value as string)
+    }
+    if (key === 'activeTheme') {
+      import('../themes/engine').then(({ applyTheme }) => {
+        applyTheme(value as string, this.state.dark)
+      })
     }
   }
   async getModels() {

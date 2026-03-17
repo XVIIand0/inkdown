@@ -12,6 +12,11 @@ import { MarkdownOutput } from './note/output'
 import { WorkerHandle } from './note/worker/handle'
 import { ImportNote } from './note/import'
 import { KeyboardStore } from './keyboard'
+import { ClaudeCodeStore } from './claude-code'
+import { ClaudeCodeCliStore } from './claude-code-cli'
+import { CodeFileStore } from './code-file'
+import { MindNoteStore } from './mind-note'
+import { CenterTabStore } from './tabs/center-tabs'
 import { HookAPI } from 'antd/es/modal/useModal'
 export class Store {
   public readonly system = new SystemApi()
@@ -25,6 +30,11 @@ export class Store {
   public readonly worker = new WorkerHandle(this)
   public readonly import = new ImportNote(this)
   public readonly keyboard = new KeyboardStore(this)
+  public readonly claudeCode = new ClaudeCodeStore(this)
+  public readonly claudeCodeCli = new ClaudeCodeCliStore(this)
+  public readonly codeFile = new CodeFileStore(this)
+  public readonly mindNote = new MindNoteStore(this)
+  public readonly centerTabs = new CenterTabStore(this)
   public readonly msg: MessageInstance
   public readonly modal: HookAPI
   userDataPath = ''

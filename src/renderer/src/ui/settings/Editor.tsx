@@ -1,9 +1,134 @@
 import { observer } from 'mobx-react-lite'
-import { Checkbox, Radio, Slider } from 'antd'
+import { Button, Checkbox, Radio, Slider } from 'antd'
 import { useStore } from '@/store/store'
 import { TextHelp } from '../common/HelpText'
 import { useTranslation } from 'react-i18next'
 import { Select } from '@lobehub/ui'
+import { useCallback, useEffect, useState } from 'react'
+
+import { Terminal } from 'lucide-react'
+import { themes } from '@/themes/themes'
+
+const ipcRenderer = window.electron.ipcRenderer
+
+const DataPathSetting = () => {
+  const store = useStore()
+  const { t } = useTranslation()
+  const [dataPath, setDataPath] = useState('')
+  const [defaultPath, setDefaultPath] = useState('')
+
+  useEffect(() => {
+    ipcRenderer.invoke('getCustomDataPath').then((p: string) => setDataPath(p))
+    store.system.userDataPath().then((p: string) => setDefaultPath(p))
+  }, [])
+
+  const handleChange = useCallback(async () => {
+    const result = await store.system.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (!result.canceled && result.filePaths[0]) {
+      const newPath = result.filePaths[0]
+      await ipcRenderer.invoke('setCustomDataPath', newPath)
+      setDataPath(newPath)
+    }
+  }, [])
+
+  const handleReset = useCallback(async () => {
+    await ipcRenderer.invoke('setCustomDataPath', '')
+    setDataPath('')
+  }, [])
+
+  return (
+    <div className={'flex justify-between items-center py-3'}>
+      <div className={'text-sm'}>
+        <span className={'mr-1'}>{t('settings.data_path')}</span>
+        <TextHelp text={t('settings.data_path_help')} />
+      </div>
+      <div className={'flex items-center gap-2'}>
+        <span className={'text-xs text-gray-500 max-w-48 truncate'} title={dataPath || defaultPath}>
+          {dataPath || defaultPath}
+        </span>
+        <Button size={'small'} onClick={handleChange}>{t('settings.data_path_change')}</Button>
+        {dataPath && (
+          <Button size={'small'} onClick={handleReset}>{t('settings.data_path_reset')}</Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const ClaudeCodeSetting = () => {
+  const store = useStore()
+  const { t } = useTranslation()
+  const importedCount = store.settings.state.claudeCodeImportedProjects?.length || 0
+
+  return (
+    <div className={'flex justify-between items-center py-3'}>
+      <div className={'text-sm flex items-center gap-1.5'}>
+        <Terminal className={'w-4 h-4 text-blue-500'} />
+        <span>{t('claudeCode.title')}</span>
+        {importedCount > 0 && (
+          <span className={'text-xs text-gray-400 ml-1'}>
+            ({t('claudeCode.imported', { count: importedCount })})
+          </span>
+        )}
+      </div>
+      <div>
+        <Button
+          size={'small'}
+          onClick={() => store.claudeCode.scanAndShowImportDialog()}
+        >
+          {t('claudeCode.rescan')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+const ThemePicker = observer(() => {
+  const store = useStore()
+  const activeTheme = store.settings.state.activeTheme || 'paper-crane'
+
+  return (
+    <div className={'py-3'}>
+      <div className={'text-sm mb-2'}>Color Theme</div>
+      <div className={'grid grid-cols-2 gap-2'}>
+        {themes.map((theme) => (
+          <div
+            key={theme.id}
+            className={
+              'flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer border duration-150 ' +
+              (activeTheme === theme.id
+                ? 'border-blue-500 dark:border-blue-400'
+                : 'border-transparent hover:bg-black/5 dark:hover:bg-white/5')
+            }
+            onClick={() => store.settings.setSetting('activeTheme', theme.id)}
+          >
+            <div className={'flex gap-1 shrink-0'}>
+              <div
+                className={'w-4 h-4 rounded-full border border-black/10 dark:border-white/10'}
+                style={{ background: theme.colors.light.accent }}
+              />
+              <div
+                className={'w-4 h-4 rounded-full border border-black/10 dark:border-white/10'}
+                style={{ background: theme.colors.light.primaryBg }}
+              />
+              <div
+                className={'w-4 h-4 rounded-full border border-black/10 dark:border-white/10'}
+                style={{ background: theme.colors.dark.primaryBg }}
+              />
+              <div
+                className={'w-4 h-4 rounded-full border border-black/10 dark:border-white/10'}
+                style={{ background: theme.colors.dark.accent }}
+              />
+            </div>
+            <span className={'text-xs truncate'}>{theme.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+})
 
 export const SetEditor = observer(() => {
   const store = useStore()
@@ -30,11 +155,17 @@ export const SetEditor = observer(() => {
               {
                 label: '简体中文',
                 value: 'zh'
+              },
+              {
+                label: '繁體中文',
+                value: 'zh-TW'
               }
             ]}
           />
         </div>
       </div>
+      <DataPathSetting />
+      <ClaudeCodeSetting />
       <div className={'flex justify-between items-center py-3'}>
         <div className={'text-sm'}>
           <span className={'mr-1'}>{t('settings.theme')}</span>
@@ -62,6 +193,7 @@ export const SetEditor = observer(() => {
           />
         </div>
       </div>
+      <ThemePicker />
       <div className={'flex justify-between items-center py-3'}>
         <div className={'text-sm flex items-center'}>
           <span className={'mr-1'}>{t('settings.show_outline')}</span>

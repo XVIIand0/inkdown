@@ -163,4 +163,19 @@ export const initModel = async () => {
       })
     }
   })
+
+  await knex.schema.hasTable('mind_note').then((exists) => {
+    if (!exists) {
+      return knex.schema.createTable('mind_note', (t) => {
+        t.string('id').primary()
+        t.text('title')
+        t.string('scope').defaultTo('global')
+        t.text('projectPath').nullable()
+        t.text('content').nullable()
+        t.integer('created').defaultTo(Date.now())
+        t.integer('updated').defaultTo(Date.now())
+        t.integer('sort').defaultTo(0)
+      })
+    }
+  })
 }

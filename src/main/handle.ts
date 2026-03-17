@@ -12,7 +12,7 @@ import {
   powerMonitor,
   nativeTheme
 } from 'electron'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { join } from 'path'
 
@@ -37,6 +37,37 @@ ipcMain.handle('getFilePath', async (_, name: string) => {
 
 ipcMain.handle('userDataPath', async () => {
   return app.getPath('userData')
+})
+
+ipcMain.handle('getCustomDataPath', async () => {
+  const configPath = join(app.getAppPath(), 'config.json')
+  if (existsSync(configPath)) {
+    try {
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'))
+      return config.userDataPath || ''
+    } catch (_) {}
+  }
+  return ''
+})
+
+ipcMain.handle('setCustomDataPath', async (_, newPath: string) => {
+  const configPath = join(app.getAppPath(), 'config.json')
+  let config: Record<string, any> = {}
+  if (existsSync(configPath)) {
+    try {
+      config = JSON.parse(readFileSync(configPath, 'utf-8'))
+    } catch (_) {}
+  }
+  if (newPath) {
+    if (!existsSync(newPath)) {
+      mkdirSync(newPath, { recursive: true })
+    }
+    config.userDataPath = newPath
+  } else {
+    delete config.userDataPath
+  }
+  writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+  return true
 })
 ipcMain.handle('writeImageToClipboard', async (_, image: string) => {
   try {
@@ -124,6 +155,10 @@ ipcMain.on('print-pdf', async (e, data: { docId?: string; chatId?: string }) => 
     }
     ipcMain.once('print-pdf-ready', ready)
   }
+})
+
+ipcMain.on('open-in-default-app', (_, path: string) => {
+  shell.openPath(path)
 })
 
 ipcMain.on('showInFinder', (_, path: string) => {

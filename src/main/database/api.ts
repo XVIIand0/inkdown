@@ -606,6 +606,39 @@ ipcMain.handle(
   }
 )
 
+// Mind Note handlers
+ipcMain.handle('mind-note:getByScope', async (_, scope: string) => {
+  return knex.select('*').from('mind_note').where('scope', scope).orderBy('sort', 'asc').orderBy('created', 'desc')
+})
+
+ipcMain.handle('mind-note:get', async (_, id: string) => {
+  return knex.select('*').from('mind_note').where('id', id).first()
+})
+
+ipcMain.handle('mind-note:create', async (_, note: { id: string; title: string; scope: string; projectPath?: string; content?: string }) => {
+  const now = Date.now()
+  const record = {
+    ...note,
+    created: now,
+    updated: now,
+    sort: 0
+  }
+  await knex('mind_note').insert(record)
+  return record
+})
+
+ipcMain.handle('mind-note:update', async (_, id: string, data: { title?: string; content?: string; sort?: number; updated: number }) => {
+  return knex('mind_note').where('id', id).update(data)
+})
+
+ipcMain.handle('mind-note:delete', async (_, id: string) => {
+  return knex('mind_note').where('id', id).delete()
+})
+
+ipcMain.handle('mind-note:getScopes', async () => {
+  return knex('mind_note').select('scope').count('* as count').groupBy('scope')
+})
+
 const queryVector = async ({
   query,
   spaceId,

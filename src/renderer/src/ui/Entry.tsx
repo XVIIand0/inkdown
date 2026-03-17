@@ -11,8 +11,11 @@ import { Settings } from './settings/Settings'
 import { ExportSpace } from './space/ExportSpace'
 import { ImportFolder } from './space/ImportFolder'
 import { SpaceFiles } from './space/Files'
+import { CenterArea } from './center/CenterArea'
+import { ClaudeCodeImportDialog } from './claude-code/ImportDialog'
 const Entry = observer(() => {
   const store = useStore()
+  const claudeCodeMode = store.settings.state.claudeCodeMode
   return (
     <div className={`flex h-screen`}>
       <div
@@ -23,14 +26,14 @@ const Entry = observer(() => {
       <div
         className={`flex-1 flex flex-col w-0 min-w-0 ${!store.settings.state.fullChatBot ? 'relative' : 'invisible opacity-0 w-0 h-0 absolute left-0 top-0 pointer-events-none'}`}
       >
-        <Nav />
+        {!claudeCodeMode && <Nav />}
         <div className={'flex-1 relative h-[calc(100vh_-_40px)]'}>
           <div className={`h-full`}>
-            <Note />
+            {claudeCodeMode ? <CenterArea /> : <Note />}
           </div>
         </div>
       </div>
-      <Chat />
+      {!claudeCodeMode && <Chat />}
       <ConfirmDialog />
       <EditFolderDialog />
       <EditSpace />
@@ -38,6 +41,7 @@ const Entry = observer(() => {
       <ExportSpace />
       <ImportFolder />
       <SpaceFiles />
+      <ClaudeCodeImportDialog />
     </div>
   )
 })
