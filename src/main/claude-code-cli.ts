@@ -201,6 +201,7 @@ ipcMain.handle(
       projectPath: string
       cols?: number
       rows?: number
+      newConversation?: boolean
     }
   ) => {
     const claudePath = getClaudePath()
@@ -223,9 +224,11 @@ ipcMain.handle(
       }
     }
 
+    const claudeArgs = options.newConversation ? [] : ['--resume', options.sessionId]
+
     let ptyProcess: any
     try {
-      ptyProcess = getPty().spawn(claudePath, ['--resume', options.sessionId], {
+      ptyProcess = getPty().spawn(claudePath, claudeArgs, {
         name: 'xterm-256color',
         cols: options.cols || 120,
         rows: options.rows || 30,

@@ -255,6 +255,28 @@ export const SshTerminalView = ({ hostId }: { hostId: string }) => {
     term.loadAddon(fitAddon)
     term.loadAddon(unicode11)
     term.unicode.activeVersion = '11'
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true
+      const isMac = navigator.platform.startsWith('Mac')
+      const mod = isMac ? e.metaKey : e.ctrlKey
+      if (mod && e.key === 'c' && term.hasSelection()) {
+        e.preventDefault()
+        navigator.clipboard.writeText(term.getSelection())
+        term.clearSelection()
+        return false
+      }
+      if (mod && e.key === 'v') {
+        e.preventDefault()
+        navigator.clipboard.readText().then((text) => {
+          const tid = terminalIdRef.current
+          if (tid) {
+            ipcRenderer.invoke('ssh-host:terminalInput', { terminalId: tid, data: text })
+          }
+        })
+        return false
+      }
+      return true
+    })
     term.open(container)
 
     const entry = {
@@ -540,6 +562,26 @@ const LiveView = ({
       textarea.addEventListener('compositionupdate', updateIMEPosition)
     }
 
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true
+      const isMac = navigator.platform.startsWith('Mac')
+      const mod = isMac ? e.metaKey : e.ctrlKey
+      if (mod && e.key === 'c' && term.hasSelection()) {
+        e.preventDefault()
+        navigator.clipboard.writeText(term.getSelection())
+        term.clearSelection()
+        return false
+      }
+      if (mod && e.key === 'v') {
+        e.preventDefault()
+        navigator.clipboard.readText().then((text) => {
+          ipcRenderer.invoke('claude-code:terminalInput', { sessionId, data: text })
+        })
+        return false
+      }
+      return true
+    })
+
     const entry = {
       term,
       fitAddon,
@@ -633,20 +675,25 @@ const LiveView = ({
         // ignore
       }
 
+      const isNewConversation = sessionId.startsWith('new-')
       const spawnChannel = hostId
         ? 'ssh-host:spawnRemoteClaudeTerminal'
         : 'claude-code:spawnTerminal'
-      const spawnCmd = hostId
-        ? `$ ssh ... -- claude --resume ${sessionId}`
-        : `$ claude --resume ${sessionId}`
+      const spawnCmd = isNewConversation
+        ? (hostId ? `$ ssh ... -- claude` : `$ claude`)
+        : (hostId
+          ? `$ ssh ... -- claude --resume ${sessionId}`
+          : `$ claude --resume ${sessionId}`)
       term.writeln(`\x1b[90m${spawnCmd}\x1b[0m\r\n`)
       ipcRenderer
         .invoke(spawnChannel, {
           sessionId,
           projectPath,
+          projectId: store.claudeCode.state.activeProjectId,
           hostId,
           cols: term.cols,
-          rows: term.rows
+          rows: term.rows,
+          newConversation: isNewConversation
         })
         .then((result: { success: boolean; error?: string }) => {
           if (!result.success) {
@@ -888,6 +935,8 @@ export const SessionView = observer(({ sessionId, projectId, hostId }: SessionVi
     activeProject = store.claudeCode.activeProject
   }
 
+  const isNewConversation = effectiveSessionId?.startsWith('new-')
+
   if (!effectiveSessionId) {
     return <EmptyState />
   }
@@ -900,42 +949,44 @@ export const SessionView = observer(({ sessionId, projectId, hostId }: SessionVi
           {activeProject?.path ?? ''}
         </span>
 
-        <div
-          className="flex items-center rounded-md overflow-hidden border border-theme"
-          style={{ background: 'var(--md-bg-mute)' }}
-        >
-          <button
-            className={
-              'flex items-center gap-1 px-2.5 py-1 text-xs transition-colors ' +
-              (viewMode === 'live' ? 'md-text' : 'text-secondary')
-            }
-            style={
-              viewMode === 'live' ? { background: 'var(--active-bg)' } : undefined
-            }
-            onClick={() => setViewMode('live')}
+        {!isNewConversation && (
+          <div
+            className="flex items-center rounded-md overflow-hidden border border-theme"
+            style={{ background: 'var(--md-bg-mute)' }}
           >
-            <Play size={12} />
-            {t('claudeCode.live')}
-          </button>
-          <button
-            className={
-              'flex items-center gap-1 px-2.5 py-1 text-xs transition-colors ' +
-              (viewMode === 'history' ? 'md-text' : 'text-secondary')
-            }
-            style={
-              viewMode === 'history'
-                ? { background: 'var(--active-bg)' }
-                : undefined
-            }
-            onClick={() => setViewMode('history')}
-          >
-            <History size={12} />
-            {t('claudeCode.history')}
-          </button>
-        </div>
+            <button
+              className={
+                'flex items-center gap-1 px-2.5 py-1 text-xs transition-colors ' +
+                (viewMode === 'live' ? 'md-text' : 'text-secondary')
+              }
+              style={
+                viewMode === 'live' ? { background: 'var(--active-bg)' } : undefined
+              }
+              onClick={() => setViewMode('live')}
+            >
+              <Play size={12} />
+              {t('claudeCode.live')}
+            </button>
+            <button
+              className={
+                'flex items-center gap-1 px-2.5 py-1 text-xs transition-colors ' +
+                (viewMode === 'history' ? 'md-text' : 'text-secondary')
+              }
+              style={
+                viewMode === 'history'
+                  ? { background: 'var(--active-bg)' }
+                  : undefined
+              }
+              onClick={() => setViewMode('history')}
+            >
+              <History size={12} />
+              {t('claudeCode.history')}
+            </button>
+          </div>
+        )}
       </div>
 
-      {viewMode === 'live' && activeProject?.path ? (
+      {(viewMode === 'live' || isNewConversation) && activeProject?.path ? (
         <LiveView
           key={effectiveSessionId}
           sessionId={effectiveSessionId}

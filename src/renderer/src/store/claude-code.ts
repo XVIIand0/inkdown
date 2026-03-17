@@ -34,7 +34,11 @@ const state = {
   currentOffset: 0,
   searchQuery: '',
   searchResults: [] as ISearchResult[],
-  searchLoading: false
+  searchLoading: false,
+  sessionAliases: {} as Record<string, string>,
+  pinnedSessionIds: [] as string[],
+  projectConfigs: {} as Record<string, { iconType: string; iconValue?: string; sort: number }>
+
 }
 
 const dialogData = {
@@ -80,9 +84,12 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     }
     this.setState({ loading: true })
     try {
-      const all: IClaudeProject[] = await ipcRenderer.invoke('claude-code:getProjects')
+      const [all, configs] = await Promise.all([
+        ipcRenderer.invoke('claude-code:getProjects') as Promise<IClaudeProject[]>,
+        ipcRenderer.invoke('claude-code:getProjectConfigs')
+      ])
       const filtered = (all || []).filter((p) => localIds.includes(p.id))
-      this.setState({ projects: filtered })
+      this.setState({ projects: filtered, projectConfigs: configs || {} })
     } catch (e) {
       console.error('Failed to load Claude Code projects', e)
       this.setState({ projects: [] })
@@ -188,7 +195,16 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
       } else {
         sessions = await ipcRenderer.invoke('claude-code:getSessions', id)
       }
-      this.setState({ sessions: sessions || [] })
+      // Load custom aliases and pins for this project
+      const [aliases, pins] = await Promise.all([
+        ipcRenderer.invoke('claude-code:getSessionAliases', id, hostId || null),
+        ipcRenderer.invoke('claude-code:getSessionPins', id, hostId || null)
+      ])
+      this.setState({
+        sessions: sessions || [],
+        sessionAliases: aliases || {},
+        pinnedSessionIds: pins || []
+      })
       if (this.state.viewMode === 'files' && !hostId) {
         await this.loadFileTree()
       }
@@ -297,6 +313,121 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     this.setState({ searchQuery: '', searchResults: [], searchLoading: false })
   }
 
+  async renameSession(sessionId: string, alias: string) {
+    const projectId = this.state.activeProjectId
+    if (!projectId) return
+    await ipcRenderer.invoke('claude-code:setSessionAlias', {
+      projectId,
+      sessionId,
+      alias,
+      hostId: this.state.activeHostId || null
+    })
+    this.setState((s) => {
+      if (alias.trim()) {
+        s.sessionAliases[sessionId] = alias.trim()
+      } else {
+        delete s.sessionAliases[sessionId]
+      }
+    })
+    // Also update the tab title if this session is open
+    const displayName = alias.trim() || this.state.sessions.find(
+      (s: IClaudeSession) => s.id === sessionId
+    )?.firstMessage || 'Session'
+    const tabs = this.store.centerTabs.state.tabs
+    const tab = tabs.find((t) => t.type === 'session' && t.sessionId === sessionId)
+    if (tab) {
+      this.store.centerTabs.updateTabTitle(tab.id, displayName)
+    }
+  }
+
+  getSessionDisplayName(session: IClaudeSession): string {
+    return this.state.sessionAliases[session.id] || session.firstMessage || 'Untitled'
+  }
+
+  isSessionPinned(sessionId: string): boolean {
+    return this.state.pinnedSessionIds.includes(sessionId)
+  }
+
+  async toggleSessionPin(sessionId: string) {
+    const projectId = this.state.activeProjectId
+    if (!projectId) return
+    const isPinned = await ipcRenderer.invoke('claude-code:toggleSessionPin', {
+      projectId,
+      sessionId,
+      hostId: this.state.activeHostId || null
+    })
+    this.setState((s) => {
+      if (isPinned) {
+        if (!s.pinnedSessionIds.includes(sessionId)) {
+          s.pinnedSessionIds.push(sessionId)
+        }
+      } else {
+        s.pinnedSessionIds = s.pinnedSessionIds.filter((id) => id !== sessionId)
+      }
+    })
+  }
+
+  getProjectConfig(projectId: string) {
+    return this.state.projectConfigs[projectId] || { iconType: 'default', sort: 0 }
+  }
+
+  async setProjectConfig(
+    projectId: string,
+    updates: { iconType?: string; iconValue?: string; sort?: number }
+  ) {
+    const hostId = this.state.activeHostId || null
+    await ipcRenderer.invoke('claude-code:setProjectConfig', {
+      projectId,
+      hostId,
+      ...updates
+    })
+    this.setState((s) => {
+      const existing = s.projectConfigs[projectId] || { iconType: 'default', sort: 0 }
+      s.projectConfigs[projectId] = { ...existing, ...updates }
+    })
+  }
+
+  async reorderProjects(hostId: string | null, projectIds: string[]) {
+    await ipcRenderer.invoke('claude-code:reorderProjects', { hostId, projectIds })
+    this.setState((s) => {
+      for (let i = 0; i < projectIds.length; i++) {
+        const existing = s.projectConfigs[projectIds[i]]
+        if (existing) {
+          existing.sort = i
+        } else {
+          s.projectConfigs[projectIds[i]] = { iconType: 'default', sort: i }
+        }
+      }
+    })
+  }
+
+  async startNewConversation() {
+    const projectId = this.state.activeProjectId
+    if (!projectId) return
+    const hostId = this.state.activeHostId
+    const newSessionId = `new-${crypto.randomUUID()}`
+    // Find the project to get its path
+    let projectPath = ''
+    if (hostId) {
+      for (const group of this.groupedProjects) {
+        const found = group.projects.find((p) => p.id === projectId)
+        if (found) {
+          projectPath = found.path
+          break
+        }
+      }
+    } else {
+      const project = this.state.projects.find((p) => p.id === projectId)
+      if (project) projectPath = project.path
+    }
+    this.store.centerTabs.openSessionTab(
+      projectId,
+      newSessionId,
+      'New Conversation',
+      hostId || undefined
+    )
+  }
+
   get groupedProjects(): Array<{
     hostId: string | null
     hostName: string
@@ -312,12 +443,21 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
       projects: IClaudeProject[]
     }> = []
 
+    const configs = this.state.projectConfigs
+    const sortProjects = (projects: IClaudeProject[]) => {
+      return [...projects].sort((a, b) => {
+        const sa = configs[a.id]?.sort ?? 999
+        const sb = configs[b.id]?.sort ?? 999
+        return sa - sb
+      })
+    }
+
     // Local group always first
     groups.push({
       hostId: null,
       hostName: 'Local',
       iconType: 'default',
-      projects: this.state.projects
+      projects: sortProjects(this.state.projects)
     })
 
     // SSH host groups
@@ -347,7 +487,7 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
         hostName: host.name,
         iconType: host.iconType,
         iconValue: host.iconValue,
-        projects: remoteProjects
+        projects: sortProjects(remoteProjects)
       })
     }
 

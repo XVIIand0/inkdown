@@ -377,7 +377,18 @@
     "searching": "Searching...",
     "live": "Live",
     "history": "History",
-    "liveHint": "Send a message to resume this conversation with Claude"
+    "liveHint": "Send a message to resume this conversation with Claude",
+    "renameSession": "Rename",
+    "copySessionId": "Copy Session ID",
+    "newConversation": "New Conversation",
+    "pinSession": "Pin",
+    "unpinSession": "Unpin",
+    "projectSettings": "Settings",
+    "iconEmoji": "Emoji",
+    "iconColor": "Color",
+    "iconImage": "Image",
+    "resetIcon": "Reset",
+    "browse": "Browse"
   },
   "tabs": {
     "close": "Close",

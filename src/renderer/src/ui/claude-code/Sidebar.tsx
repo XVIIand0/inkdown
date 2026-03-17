@@ -20,9 +20,12 @@ import {
   ArrowLeft,
   Monitor,
   Server,
-  RefreshCw
+  RefreshCw,
+  Pin,
+  Settings
 } from 'lucide-react'
 import { openMenus } from '@/ui/common/Menu'
+import { IconPicker, IconType, renderIconPreview } from './IconPicker'
 
 type ViewMode = 'sessions' | 'files' | 'notes'
 
@@ -109,25 +112,75 @@ const SessionList = observer(() => {
   const sessions = store.claudeCode.state.sessions
   const activeSessionId = store.claudeCode.state.activeSessionId
   const [searchQuery, setSearchQuery] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const editInputRef = useRef<HTMLInputElement>(null)
 
   const filteredSessions = searchQuery
-    ? sessions.filter((s: IClaudeSession) =>
-        (s.firstMessage || '').toLowerCase().includes(searchQuery.toLowerCase())
-      )
+    ? sessions.filter((s: IClaudeSession) => {
+        const displayName = store.claudeCode.getSessionDisplayName(s)
+        return displayName.toLowerCase().includes(searchQuery.toLowerCase())
+      })
     : sessions
+
+  const pinnedIds = store.claudeCode.state.pinnedSessionIds
+  const pinnedSessions = filteredSessions.filter(
+    (s: IClaudeSession) => pinnedIds.includes(s.id)
+  )
+  const unpinnedSessions = filteredSessions.filter(
+    (s: IClaudeSession) => !pinnedIds.includes(s.id)
+  )
 
   const handleSelectSession = useCallback((sessionId: string) => {
     const session = store.claudeCode.state.sessions.find(
       (s: IClaudeSession) => s.id === sessionId
     )
+    const displayName = session ? store.claudeCode.getSessionDisplayName(session) : 'Session'
     store.centerTabs.openSessionTab(
       store.claudeCode.state.activeProjectId,
       sessionId,
-      session?.firstMessage || 'Session',
+      displayName,
       store.claudeCode.state.activeHostId || undefined
     )
     store.claudeCode.selectSession(sessionId)
   }, [store])
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, session: IClaudeSession) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const isPinned = store.claudeCode.isSessionPinned(session.id)
+    openMenus(e, [
+      {
+        text: isPinned ? t('claudeCode.unpinSession') : t('claudeCode.pinSession'),
+        click: () => store.claudeCode.toggleSessionPin(session.id)
+      },
+      {
+        text: t('claudeCode.renameSession'),
+        click: () => {
+          setEditingId(session.id)
+          setEditValue(store.claudeCode.state.sessionAliases[session.id] || '')
+          setTimeout(() => editInputRef.current?.focus(), 50)
+        }
+      },
+      {
+        text: t('claudeCode.copySessionId'),
+        click: () => navigator.clipboard.writeText(session.id)
+      }
+    ])
+  }, [store, t])
+
+  const handleRenameSubmit = useCallback((sessionId: string) => {
+    store.claudeCode.renameSession(sessionId, editValue)
+    setEditingId(null)
+  }, [store, editValue])
+
+  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent, sessionId: string) => {
+    if (e.key === 'Enter') {
+      handleRenameSubmit(sessionId)
+    } else if (e.key === 'Escape') {
+      setEditingId(null)
+    }
+  }, [handleRenameSubmit])
 
   if (sessions.length === 0) {
     return (
@@ -168,8 +221,10 @@ const SessionList = observer(() => {
           </button>
         )}
       </div>
-      {filteredSessions.map((session: IClaudeSession) => {
+      {pinnedSessions.map((session: IClaudeSession) => {
         const isActive = session.id === activeSessionId
+        const displayName = store.claudeCode.getSessionDisplayName(session)
+        const isEditing = editingId === session.id
 
         return (
           <div
@@ -180,12 +235,77 @@ const SessionList = observer(() => {
                 ? 'active-item-bg active-item-text'
                 : 'md-text hover-bg')
             }
-            onClick={() => handleSelectSession(session.id)}
+            onClick={() => !isEditing && handleSelectSession(session.id)}
+            onContextMenu={(e) => handleContextMenu(e, session)}
+          >
+            <Pin className={'w-3 h-3 shrink-0 text-blue-400'} />
+            {isEditing ? (
+              <input
+                ref={editInputRef}
+                type={'text'}
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => handleRenameKeyDown(e, session.id)}
+                onBlur={() => handleRenameSubmit(session.id)}
+                placeholder={session.firstMessage || 'Untitled'}
+                className={
+                  'flex-1 text-xs py-0 px-1 rounded border border-blue-500 ' +
+                  'primary-bg-color md-text outline-none min-w-0'
+                }
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className={'truncate flex-1'} title={displayName}>
+                {displayName}
+              </span>
+            )}
+            <span className={'text-[10px] text-secondary shrink-0'}>
+              {session.messageCount}
+            </span>
+          </div>
+        )
+      })}
+      {pinnedSessions.length > 0 && unpinnedSessions.length > 0 && (
+        <div className={'mx-3 my-1 border-t border-theme'} />
+      )}
+      {unpinnedSessions.map((session: IClaudeSession) => {
+        const isActive = session.id === activeSessionId
+        const displayName = store.claudeCode.getSessionDisplayName(session)
+        const isEditing = editingId === session.id
+
+        return (
+          <div
+            key={session.id}
+            className={
+              'flex items-center gap-2 py-1.5 px-3 mx-1 rounded cursor-pointer text-xs ' +
+              (isActive
+                ? 'active-item-bg active-item-text'
+                : 'md-text hover-bg')
+            }
+            onClick={() => !isEditing && handleSelectSession(session.id)}
+            onContextMenu={(e) => handleContextMenu(e, session)}
           >
             <MessageSquare className={'w-3.5 h-3.5 shrink-0'} />
-            <span className={'truncate flex-1'}>
-              {session.firstMessage || 'Untitled'}
-            </span>
+            {isEditing ? (
+              <input
+                ref={editInputRef}
+                type={'text'}
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => handleRenameKeyDown(e, session.id)}
+                onBlur={() => handleRenameSubmit(session.id)}
+                placeholder={session.firstMessage || 'Untitled'}
+                className={
+                  'flex-1 text-xs py-0 px-1 rounded border border-blue-500 ' +
+                  'primary-bg-color md-text outline-none min-w-0'
+                }
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className={'truncate flex-1'} title={displayName}>
+                {displayName}
+              </span>
+            )}
             <span className={'text-[10px] text-secondary shrink-0'}>
               {session.messageCount}
             </span>
@@ -387,12 +507,8 @@ const HostGroupHeader = observer(({
   }
 
   const renderIcon = () => {
-    if (iconType === 'color' && iconValue) {
-      return <span className={'w-3 h-3 rounded-full shrink-0'} style={{ background: iconValue }} />
-    }
-    if (iconType === 'image' && iconValue) {
-      return <img src={iconValue} className={'w-4 h-4 rounded shrink-0 object-cover'} />
-    }
+    const preview = renderIconPreview(iconType, iconValue)
+    if (preview) return preview
     if (!hostId) return <Monitor size={14} className={'shrink-0 text-secondary'} />
     return <Server size={14} className={'shrink-0 text-secondary'} />
   }
@@ -430,12 +546,35 @@ const HostGroupHeader = observer(({
   )
 })
 
-const ProjectItem = observer(({ project, hostId }: { project: IClaudeProject; hostId?: string | null }) => {
+const ProjectIcon = observer(({ projectId }: { projectId: string }) => {
+  const store = useStore()
+  const config = store.claudeCode.getProjectConfig(projectId)
+  const preview = renderIconPreview(config.iconType, config.iconValue)
+  if (preview) return preview
+  return <Folder className={'w-4 h-4 shrink-0 text-amber-500'} />
+})
+
+const ProjectItem = observer(({
+  project,
+  hostId,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd
+}: {
+  project: IClaudeProject
+  hostId?: string | null
+  onDragStart?: (e: React.DragEvent, projectId: string) => void
+  onDragOver?: (e: React.DragEvent, projectId: string) => void
+  onDrop?: (e: React.DragEvent, projectId: string) => void
+  onDragEnd?: () => void
+}) => {
   const store = useStore()
   const { t } = useTranslation()
   const isActive = store.claudeCode.state.activeProjectId === project.id
   const [expanded, setExpanded] = useState(isActive)
   const [viewMode, setViewMode] = useState<ViewMode>('sessions')
+  const [dragOver, setDragOver] = useState(false)
 
   const handleToggle = useCallback(() => {
     const willExpand = !expanded
@@ -466,8 +605,47 @@ const ProjectItem = observer(({ project, hostId }: { project: IClaudeProject; ho
     }
   }, [hostId, project.id, syncing, store])
 
+  const [showSettings, setShowSettings] = useState(false)
+  const settingsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!showSettings) return
+    const handler = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+        setShowSettings(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showSettings])
+
+  const handleIconChange = useCallback((type: IconType, value: string) => {
+    store.claudeCode.setProjectConfig(project.id, { iconType: type, iconValue: value })
+  }, [store, project.id])
+
   return (
-    <div className={'border-b border-theme last:border-b-0'}>
+    <div
+      className={
+        'border-b border-theme last:border-b-0 ' +
+        (dragOver ? 'border-t-2 border-t-blue-500' : '')
+      }
+      draggable
+      onDragStart={(e) => onDragStart?.(e, project.id)}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDragOver(true)
+        onDragOver?.(e, project.id)
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        setDragOver(false)
+        onDrop?.(e, project.id)
+      }}
+      onDragEnd={() => {
+        setDragOver(false)
+        onDragEnd?.()
+      }}
+    >
       <div
         className={
           'flex items-center gap-1.5 py-2 px-2 cursor-pointer ' +
@@ -481,13 +659,26 @@ const ProjectItem = observer(({ project, hostId }: { project: IClaudeProject; ho
         ) : (
           <ChevronRight className={'w-3.5 h-3.5 shrink-0 text-secondary'} />
         )}
-        <Folder className={'w-4 h-4 shrink-0 text-amber-500'} />
+        <ProjectIcon projectId={project.id} />
         <span
           className={'text-sm truncate flex-1 md-text'}
           title={project.path}
         >
           {displayName}
         </span>
+        <button
+          className={
+            'p-0.5 rounded text-secondary hover-bg transition-colors ' +
+            'opacity-0 group-hover/proj:opacity-100 shrink-0'
+          }
+          onClick={(e) => {
+            e.stopPropagation()
+            setShowSettings(!showSettings)
+          }}
+          title={t('claudeCode.projectSettings')}
+        >
+          <Settings size={11} />
+        </button>
         {hostId && (
           <button
             className={
@@ -507,6 +698,25 @@ const ProjectItem = observer(({ project, hostId }: { project: IClaudeProject; ho
           </span>
         )}
       </div>
+
+      {showSettings && (
+        <div
+          ref={settingsRef}
+          className={
+            'mx-2 mb-2 p-3 rounded border border-theme'
+          }
+          style={{ background: 'var(--md-bg-mute)' }}
+        >
+          <div className={'text-xs font-medium md-text mb-2'}>
+            {t('claudeCode.projectSettings')}
+          </div>
+          <IconPicker
+            iconType={store.claudeCode.getProjectConfig(project.id).iconType as IconType}
+            iconValue={store.claudeCode.getProjectConfig(project.id).iconValue || ''}
+            onChange={handleIconChange}
+          />
+        </div>
+      )}
 
       {expanded && isActive && (
         <div className={'pb-1'}>
@@ -556,6 +766,19 @@ const ProjectItem = observer(({ project, hostId }: { project: IClaudeProject; ho
             >
               <Brain className={'w-3 h-3'} />
               {t('claudeCode.mind')}
+            </button>
+            <div className={'flex-1'} />
+            <button
+              className={
+                'p-0.5 rounded text-secondary hover-bg transition-colors'
+              }
+              onClick={(e) => {
+                e.stopPropagation()
+                store.claudeCode.startNewConversation()
+              }}
+              title={t('claudeCode.newConversation')}
+            >
+              <Plus className={'w-3.5 h-3.5'} />
             </button>
           </div>
 
@@ -791,6 +1014,58 @@ const GlobalSearchResults = observer(() => {
   )
 })
 
+const ProjectGroup = observer(({
+  group,
+  isExpanded
+}: {
+  group: { hostId: string | null; projects: IClaudeProject[] }
+  isExpanded: boolean
+}) => {
+  const store = useStore()
+  const dragSourceRef = useRef<string | null>(null)
+
+  const handleDragStart = useCallback((_e: React.DragEvent, projectId: string) => {
+    dragSourceRef.current = projectId
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent, _projectId: string) => {
+    e.preventDefault()
+  }, [])
+
+  const handleDrop = useCallback((_e: React.DragEvent, targetId: string) => {
+    const sourceId = dragSourceRef.current
+    if (!sourceId || sourceId === targetId) return
+    const ids = group.projects.map((p) => p.id)
+    const fromIdx = ids.indexOf(sourceId)
+    const toIdx = ids.indexOf(targetId)
+    if (fromIdx < 0 || toIdx < 0) return
+    ids.splice(fromIdx, 1)
+    ids.splice(toIdx, 0, sourceId)
+    store.claudeCode.reorderProjects(group.hostId, ids)
+  }, [store, group.projects, group.hostId])
+
+  const handleDragEnd = useCallback(() => {
+    dragSourceRef.current = null
+  }, [])
+
+  if (!isExpanded) return null
+  return (
+    <>
+      {group.projects.map((p: IClaudeProject) => (
+        <ProjectItem
+          key={p.id}
+          project={p}
+          hostId={group.hostId}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          onDragEnd={handleDragEnd}
+        />
+      ))}
+    </>
+  )
+})
+
 export const ClaudeCodeSidebar = observer(() => {
   const store = useStore()
   const { t } = useTranslation()
@@ -917,9 +1192,7 @@ export const ClaudeCodeSidebar = observer(() => {
                     }}
                     projectCount={group.projects.length}
                   />
-                  {isExpanded && group.projects.map((p: IClaudeProject) => (
-                    <ProjectItem key={p.id} project={p} hostId={group.hostId} />
-                  ))}
+                  <ProjectGroup group={group} isExpanded={isExpanded} />
                 </div>
               )
             })

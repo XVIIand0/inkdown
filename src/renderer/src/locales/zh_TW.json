@@ -377,7 +377,18 @@
     "searching": "搜尋中...",
     "live": "即時",
     "history": "歷史",
-    "liveHint": "發送訊息以恢復與 Claude 的對話"
+    "liveHint": "發送訊息以恢復與 Claude 的對話",
+    "renameSession": "重新命名",
+    "copySessionId": "複製對話 ID",
+    "newConversation": "新增對話",
+    "pinSession": "置頂",
+    "unpinSession": "取消置頂",
+    "projectSettings": "設定",
+    "iconEmoji": "表情",
+    "iconColor": "顏色",
+    "iconImage": "圖片",
+    "resetIcon": "重置",
+    "browse": "瀏覽"
   },
   "tabs": {
     "close": "關閉",

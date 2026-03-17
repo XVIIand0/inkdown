@@ -199,6 +199,37 @@ export const initModel = async () => {
     }
   })
 
+  await knex.schema.hasTable('session_alias').then((exists) => {
+    if (!exists) {
+      return knex.schema.createTable('session_alias', (t) => {
+        t.string('id').primary() // format: hostId|projectId|sessionId
+        t.text('alias').notNullable()
+        t.integer('updated').defaultTo(Date.now())
+      })
+    }
+  })
+
+  await knex.schema.hasTable('project_config').then((exists) => {
+    if (!exists) {
+      return knex.schema.createTable('project_config', (t) => {
+        t.string('id').primary() // format: hostId|projectId
+        t.text('iconType').defaultTo('default') // 'default' | 'color' | 'image'
+        t.text('iconValue').nullable()
+        t.integer('sort').defaultTo(0)
+        t.integer('updated').defaultTo(Date.now())
+      })
+    }
+  })
+
+  await knex.schema.hasTable('session_pin').then((exists) => {
+    if (!exists) {
+      return knex.schema.createTable('session_pin', (t) => {
+        t.string('id').primary() // format: hostId|projectId|sessionId
+        t.integer('created').defaultTo(Date.now())
+      })
+    }
+  })
+
   await knex.schema.hasTable('ssh_remote_cache').then((exists) => {
     if (!exists) {
       return knex.schema.createTable('ssh_remote_cache', (t) => {

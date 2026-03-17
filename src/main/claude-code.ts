@@ -10,6 +10,7 @@ import {
   extractLastTimestamp,
   parseSessionMessages
 } from './claude-code-parser'
+import { knex } from './database/model'
 
 const claudeDir = join(homedir(), '.claude')
 const projectsDir = join(claudeDir, 'projects')
@@ -282,3 +283,184 @@ ipcMain.handle('claude-code:searchAllSessions', async (_, query: string) => {
 
   return results
 })
+
+// ─── Session Alias (custom names) ───
+
+function buildAliasId(
+  hostId: string | null,
+  projectId: string,
+  sessionId: string
+): string {
+  return `${hostId || 'local'}|${projectId}|${sessionId}`
+}
+
+ipcMain.handle(
+  'claude-code:getSessionAliases',
+  async (_, projectId: string, hostId?: string | null) => {
+    const prefix = `${hostId || 'local'}|${projectId}|`
+    const rows = await knex('session_alias')
+      .where('id', 'like', `${prefix}%`)
+      .select('id', 'alias')
+    const map: Record<string, string> = {}
+    for (const row of rows) {
+      const sessionId = row.id.substring(prefix.length)
+      map[sessionId] = row.alias
+    }
+    return map
+  }
+)
+
+ipcMain.handle(
+  'claude-code:setSessionAlias',
+  async (
+    _,
+    options: {
+      projectId: string
+      sessionId: string
+      alias: string
+      hostId?: string | null
+    }
+  ) => {
+    const id = buildAliasId(options.hostId || null, options.projectId, options.sessionId)
+    if (!options.alias.trim()) {
+      await knex('session_alias').where('id', id).delete()
+      return true
+    }
+    const existing = await knex('session_alias').where('id', id).first()
+    if (existing) {
+      await knex('session_alias')
+        .where('id', id)
+        .update({ alias: options.alias.trim(), updated: Date.now() })
+    } else {
+      await knex('session_alias').insert({
+        id,
+        alias: options.alias.trim(),
+        updated: Date.now()
+      })
+    }
+    return true
+  }
+)
+
+// ─── Session Pin ───
+
+ipcMain.handle(
+  'claude-code:getSessionPins',
+  async (_, projectId: string, hostId?: string | null) => {
+    const prefix = `${hostId || 'local'}|${projectId}|`
+    const rows = await knex('session_pin')
+      .where('id', 'like', `${prefix}%`)
+      .select('id')
+    return rows.map((r) => r.id.substring(prefix.length))
+  }
+)
+
+ipcMain.handle(
+  'claude-code:toggleSessionPin',
+  async (
+    _,
+    options: {
+      projectId: string
+      sessionId: string
+      hostId?: string | null
+    }
+  ) => {
+    const id = buildAliasId(options.hostId || null, options.projectId, options.sessionId)
+    const existing = await knex('session_pin').where('id', id).first()
+    if (existing) {
+      await knex('session_pin').where('id', id).delete()
+      return false
+    } else {
+      await knex('session_pin').insert({ id, created: Date.now() })
+      return true
+    }
+  }
+)
+
+// ─── Project Config (icon, color, sort) ───
+
+function buildProjectConfigId(hostId: string | null, projectId: string): string {
+  return `${hostId || 'local'}|${projectId}`
+}
+
+ipcMain.handle(
+  'claude-code:getProjectConfigs',
+  async () => {
+    const rows = await knex('project_config')
+      .select('id', 'iconType', 'iconValue', 'sort')
+    const map: Record<string, { iconType: string; iconValue?: string; sort: number }> = {}
+    for (const row of rows) {
+      // Extract projectId from composite key (hostId|projectId)
+      const pipeIdx = row.id.indexOf('|')
+      const projectId = pipeIdx >= 0 ? row.id.substring(pipeIdx + 1) : row.id
+      map[projectId] = {
+        iconType: row.iconType || 'default',
+        iconValue: row.iconValue || undefined,
+        sort: row.sort ?? 0
+      }
+    }
+    return map
+  }
+)
+
+ipcMain.handle(
+  'claude-code:setProjectConfig',
+  async (
+    _,
+    options: {
+      projectId: string
+      hostId?: string | null
+      iconType?: string
+      iconValue?: string
+      sort?: number
+    }
+  ) => {
+    const id = buildProjectConfigId(options.hostId || null, options.projectId)
+    const existing = await knex('project_config').where('id', id).first()
+    const updates: Record<string, any> = { updated: Date.now() }
+    if (options.iconType !== undefined) updates.iconType = options.iconType
+    if (options.iconValue !== undefined) updates.iconValue = options.iconValue
+    if (options.sort !== undefined) updates.sort = options.sort
+    if (existing) {
+      await knex('project_config').where('id', id).update(updates)
+    } else {
+      await knex('project_config').insert({
+        id,
+        iconType: options.iconType || 'default',
+        iconValue: options.iconValue || null,
+        sort: options.sort ?? 0,
+        updated: Date.now()
+      })
+    }
+    return true
+  }
+)
+
+ipcMain.handle(
+  'claude-code:reorderProjects',
+  async (
+    _,
+    options: {
+      hostId?: string | null
+      projectIds: string[]
+    }
+  ) => {
+    const hostId = options.hostId || null
+    for (let i = 0; i < options.projectIds.length; i++) {
+      const id = buildProjectConfigId(hostId, options.projectIds[i])
+      const existing = await knex('project_config').where('id', id).first()
+      if (existing) {
+        await knex('project_config').where('id', id).update({ sort: i, updated: Date.now() })
+      } else {
+        await knex('project_config').insert({
+          id,
+          iconType: 'default',
+          iconValue: null,
+          sort: i,
+          updated: Date.now()
+        })
+      }
+    }
+    return true
+  }
+)

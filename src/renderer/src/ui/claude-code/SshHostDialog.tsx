@@ -2,15 +2,11 @@ import { observer } from 'mobx-react-lite'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '@/store/store'
 import { useState, useEffect } from 'react'
-import { Loader2, Check, X, Upload } from 'lucide-react'
+import { Loader2, Check, X } from 'lucide-react'
 import { Modal, Button } from 'antd'
+import { IconPicker, IconType } from './IconPicker'
 
 const ipcRenderer = window.electron.ipcRenderer
-
-const PRESET_COLORS = [
-  '#ef4444', '#f97316', '#eab308', '#22c55e',
-  '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899'
-]
 
 export const SshHostDialog = observer(() => {
   const store = useStore()
@@ -24,7 +20,7 @@ export const SshHostDialog = observer(() => {
   const [authMethod, setAuthMethod] = useState<'key' | 'password' | 'agent'>('key')
   const [identityFile, setIdentityFile] = useState('')
   const [password, setPassword] = useState('')
-  const [iconType, setIconType] = useState<'default' | 'color' | 'image'>('default')
+  const [iconType, setIconType] = useState<IconType>('default')
   const [iconValue, setIconValue] = useState('')
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [testError, setTestError] = useState('')
@@ -73,20 +69,9 @@ export const SshHostDialog = observer(() => {
     }
   }
 
-  const handleImageUpload = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = 'image/*'
-    input.onchange = () => {
-      const file = input.files?.[0]
-      if (!file) return
-      const reader = new FileReader()
-      reader.onload = () => {
-        setIconValue(reader.result as string)
-      }
-      reader.readAsDataURL(file)
-    }
-    input.click()
+  const handleIconChange = (type: IconType, value: string) => {
+    setIconType(type)
+    setIconValue(value)
   }
 
   const handleTestConnection = async () => {
@@ -271,72 +256,11 @@ export const SshHostDialog = observer(() => {
 
         <div>
           <label className={labelClass}>{t('sshHost.icon')}</label>
-          <div className={'flex items-center gap-4 mb-2'}>
-            <label className={'flex items-center gap-1.5 text-sm md-text cursor-pointer'}>
-              <input
-                type={'radio'}
-                name={'iconType'}
-                checked={iconType === 'default'}
-                onChange={() => setIconType('default')}
-              />
-              {t('sshHost.iconDefault')}
-            </label>
-            <label className={'flex items-center gap-1.5 text-sm md-text cursor-pointer'}>
-              <input
-                type={'radio'}
-                name={'iconType'}
-                checked={iconType === 'color'}
-                onChange={() => setIconType('color')}
-              />
-              {t('sshHost.iconColor')}
-            </label>
-            <label className={'flex items-center gap-1.5 text-sm md-text cursor-pointer'}>
-              <input
-                type={'radio'}
-                name={'iconType'}
-                checked={iconType === 'image'}
-                onChange={() => setIconType('image')}
-              />
-              {t('sshHost.iconImage')}
-            </label>
-          </div>
-
-          {iconType === 'color' && (
-            <div className={'flex items-center gap-2 flex-wrap'}>
-              {PRESET_COLORS.map((c) => (
-                <button
-                  key={c}
-                  className={
-                    'w-6 h-6 rounded-full border-2 transition-colors ' +
-                    (iconValue === c ? 'border-blue-500' : 'border-transparent')
-                  }
-                  style={{ background: c }}
-                  onClick={() => setIconValue(c)}
-                />
-              ))}
-              <input
-                className={'w-20 text-xs py-1 px-2 rounded border border-theme primary-bg-color md-text'}
-                value={iconValue}
-                onChange={(e) => setIconValue(e.target.value)}
-                placeholder={'#hex'}
-              />
-            </div>
-          )}
-
-          {iconType === 'image' && (
-            <div className={'flex items-center gap-2'}>
-              {iconValue && (
-                <img src={iconValue} className={'w-8 h-8 rounded object-cover'} />
-              )}
-              <Button
-                size={'small'}
-                icon={<Upload size={14} />}
-                onClick={handleImageUpload}
-              >
-                {t('sshHost.browse')}
-              </Button>
-            </div>
-          )}
+          <IconPicker
+            iconType={iconType}
+            iconValue={iconValue}
+            onChange={handleIconChange}
+          />
         </div>
 
         <div className={'flex items-center gap-2 pt-1'}>

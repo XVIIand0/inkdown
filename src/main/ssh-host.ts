@@ -411,8 +411,10 @@ ipcMain.handle(
       hostId: string
       host?: ISshHost
       sessionId: string
+      projectId?: string
       cols?: number
       rows?: number
+      newConversation?: boolean
     }
   ) => {
     const host = options.host || (await getHostById(options.hostId))
@@ -440,8 +442,14 @@ ipcMain.handle(
     // Insert -t for forced pseudo-terminal allocation before user@host
     const userHostIdx = sshArgs.length - 1
     const userHost = sshArgs[userHostIdx]
-    // Use login shell to ensure PATH includes ~/.local/bin where claude is installed
-    const remoteCmd = `exec ~/.local/bin/claude --resume ${options.sessionId} 2>/dev/null || exec claude --resume ${options.sessionId}`
+
+    let remoteCmd: string
+    if (options.newConversation && options.projectId) {
+      const projPath = decodeProjectDirName(options.projectId)
+      remoteCmd = `cd ${projPath} 2>/dev/null; exec ~/.local/bin/claude 2>/dev/null || exec claude`
+    } else {
+      remoteCmd = `exec ~/.local/bin/claude --resume ${options.sessionId} 2>/dev/null || exec claude --resume ${options.sessionId}`
+    }
     const ptyArgs = [
       '-t',
       ...sshArgs.slice(0, userHostIdx),

@@ -12,6 +12,7 @@ interface IClaudeSession {
   firstMessage: string
   lastTimestamp: number
   messageCount: number
+  customName?: string
 }
 
 interface IClaudeMessage {

@@ -7,7 +7,7 @@ interface ISshHost {
   authMethod: 'key' | 'password' | 'agent'
   identityFile?: string
   password?: string
-  iconType: 'default' | 'color' | 'image'
+  iconType: 'default' | 'color' | 'image' | 'emoji'
   iconValue?: string
   sort: number
   created: number
