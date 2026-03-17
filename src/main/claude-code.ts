@@ -28,12 +28,63 @@ const IGNORED_DIRS = new Set([
   '__pycache__'
 ])
 
-function decodeProjectDirName(dirName: string): string {
+// Cache of user-confirmed path resolutions: dirName → confirmed path
+const resolvedPathCache = new Map<string, string>()
+
+/**
+ * Returns all possible filesystem path candidates for a Claude project dir name.
+ * Hyphens in the encoded name are ambiguous — could be path separators or literal hyphens.
+ */
+function decodeProjectDirNameCandidates(dirName: string): string[] {
+  const cached = resolvedPathCache.get(dirName)
+  if (cached) return [cached]
+
+  // Windows: "C--Users-..." → "C:\Users\..."
   const sepIndex = dirName.indexOf('--')
-  if (sepIndex === -1) return dirName.replace(/-/g, '/')
-  const drive = dirName.substring(0, sepIndex)
-  const rest = dirName.substring(sepIndex + 2)
-  return drive + ':\\' + rest.replace(/-/g, '\\')
+  if (sepIndex !== -1) {
+    const drive = dirName.substring(0, sepIndex)
+    const rest = dirName.substring(sepIndex + 2)
+    return [drive + ':\\' + rest.replace(/-/g, '\\')]
+  }
+
+  // Unix: resolve against the real filesystem
+  const parts = dirName.split('-').filter(Boolean)
+  const candidates = resolveAllUnixPaths(parts)
+  if (candidates.length > 0) return candidates
+  // Fallback: simple replace (path no longer exists on disk)
+  return ['/' + parts.join('/')]
+}
+
+function decodeProjectDirName(dirName: string): string {
+  return decodeProjectDirNameCandidates(dirName)[0]
+}
+
+/**
+ * Find ALL valid filesystem paths that could match the encoded dir name.
+ * Returns multiple candidates when the encoding is ambiguous.
+ */
+function resolveAllUnixPaths(parts: string[]): string[] {
+  if (parts.length === 0) return ['/']
+
+  function resolve(index: number, currentPath: string): string[] {
+    if (index >= parts.length) return [currentPath]
+
+    const results: string[] = []
+    for (let end = parts.length; end > index; end--) {
+      const segment = parts.slice(index, end).join('-')
+      const candidate = currentPath + '/' + segment
+      if (existsSync(candidate)) {
+        if (end === parts.length) {
+          results.push(candidate)
+        } else {
+          results.push(...resolve(end, candidate))
+        }
+      }
+    }
+    return results
+  }
+
+  return resolve(0, '')
 }
 
 ipcMain.handle('claude-code:getProjects', async () => {
@@ -51,10 +102,12 @@ ipcMain.handle('claude-code:getProjects', async () => {
           ).length
         } catch {}
         const hasMemory = existsSync(join(dirPath, 'memory'))
+        const candidatePaths = decodeProjectDirNameCandidates(e.name)
         return {
           id: e.name,
           name: e.name,
-          path: decodeProjectDirName(e.name),
+          path: candidatePaths[0],
+          candidatePaths: candidatePaths.length > 1 ? candidatePaths : undefined,
           sessionCount,
           hasMemory
         }
@@ -63,6 +116,15 @@ ipcMain.handle('claude-code:getProjects', async () => {
     return []
   }
 })
+
+// User confirms which path is correct for an ambiguous project dir name
+ipcMain.handle(
+  'claude-code:resolveProjectPath',
+  async (_, projectDirName: string, confirmedPath: string) => {
+    resolvedPathCache.set(projectDirName, confirmedPath)
+    return true
+  }
+)
 
 ipcMain.handle('claude-code:getSessions', async (_, projectId: string) => {
   const dirPath = join(projectsDir, projectId)

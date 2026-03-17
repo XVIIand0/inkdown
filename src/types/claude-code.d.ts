@@ -2,6 +2,7 @@ interface IClaudeProject {
   id: string
   name: string
   path: string
+  candidatePaths?: string[]
   sessionCount: number
   hasMemory: boolean
   hostId?: string

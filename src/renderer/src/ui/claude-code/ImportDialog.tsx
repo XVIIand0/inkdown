@@ -1,8 +1,10 @@
 import { observer } from 'mobx-react-lite'
 import { useStore } from '@/store/store'
 import { useTranslation } from 'react-i18next'
-import { Modal, Button, Checkbox, Spin } from 'antd'
-import { Folder, Terminal } from 'lucide-react'
+import { Modal, Button, Checkbox, Spin, Select } from 'antd'
+import { Folder, Terminal, AlertTriangle } from 'lucide-react'
+
+const ipcRenderer = window.electron.ipcRenderer
 
 export const ClaudeCodeImportDialog = observer(() => {
   const store = useStore()
@@ -12,6 +14,11 @@ export const ClaudeCodeImportDialog = observer(() => {
   const allProjects = dialog.allProjects
   const selectedIds = dialog.selectedIds
   const allSelected = allProjects.length > 0 && selectedIds.length === allProjects.length
+
+  const handlePathChange = (project: IClaudeProject, newPath: string) => {
+    project.path = newPath
+    ipcRenderer.invoke('claude-code:resolveProjectPath', project.id, newPath)
+  }
 
   return (
     <Modal
@@ -68,12 +75,13 @@ export const ClaudeCodeImportDialog = observer(() => {
             {allProjects.map((project: IClaudeProject) => {
               const checked = selectedIds.includes(project.id)
               const displayName = project.path.split(/[/\\]/).filter(Boolean).pop() || project.path
+              const hasAmbiguousPaths =
+                project.candidatePaths && project.candidatePaths.length > 1
               return (
                 <div
                   key={project.id}
                   className={
-                    'flex items-center gap-2 py-1.5 px-2 rounded cursor-pointer ' +
-                    'hover-bg'
+                    'flex items-center gap-2 py-1.5 px-2 rounded cursor-pointer hover-bg'
                   }
                   onClick={() => store.claudeCode.toggleImportSelection(project.id)}
                 >
@@ -81,9 +89,30 @@ export const ClaudeCodeImportDialog = observer(() => {
                   <Folder className={'w-4 h-4 text-amber-500 shrink-0'} />
                   <div className={'flex-1 min-w-0'}>
                     <div className={'text-sm truncate'}>{displayName}</div>
-                    <div className={'text-xs text-secondary truncate'}>
-                      {project.path}
-                    </div>
+                    {hasAmbiguousPaths ? (
+                      <div
+                        className={'flex items-center gap-1 mt-0.5'}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <AlertTriangle className={'w-3 h-3 text-amber-500 shrink-0'} />
+                        <Select
+                          size={'small'}
+                          value={project.path}
+                          onChange={(val) => handlePathChange(project, val)}
+                          className={'flex-1 min-w-0'}
+                          style={{ fontSize: 11 }}
+                          popupMatchSelectWidth={false}
+                          options={project.candidatePaths!.map((p) => ({
+                            label: p,
+                            value: p
+                          }))}
+                        />
+                      </div>
+                    ) : (
+                      <div className={'text-xs text-secondary truncate'}>
+                        {project.path}
+                      </div>
+                    )}
                   </div>
                   <span className={'text-xs text-secondary shrink-0'}>
                     {t('claudeCode.messageCount', { count: project.sessionCount })}
