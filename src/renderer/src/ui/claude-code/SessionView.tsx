@@ -171,12 +171,253 @@ const terminalCache = new Map<
   }
 >()
 
+// Cache for SSH terminal instances
+const sshTerminalCache = new Map<
+  string,
+  {
+    term: Terminal
+    fitAddon: FitAddon
+    terminalId: string | null
+    status: 'connecting' | 'running' | 'exited' | 'error'
+    errorMsg: string
+  }
+>()
+
+export const SshTerminalView = ({ hostId }: { hostId: string }) => {
+  const { t } = useTranslation()
+  const terminalRef = useRef<HTMLDivElement>(null)
+  const terminalIdRef = useRef<string | null>(null)
+  const [status, setStatus] = useState<'connecting' | 'running' | 'exited' | 'error'>(
+    'connecting'
+  )
+  const [errorMsg, setErrorMsg] = useState('')
+  const [restartCount, setRestartCount] = useState(0)
+
+  useEffect(() => {
+    const container = terminalRef.current
+    if (!container) return
+
+    const cached = sshTerminalCache.get(hostId)
+
+    if (cached && cached.status === 'running') {
+      container.appendChild(cached.term.element!)
+      setStatus(cached.status)
+      setErrorMsg(cached.errorMsg)
+      terminalIdRef.current = cached.terminalId
+
+      requestAnimationFrame(() => {
+        try {
+          cached.fitAddon.fit()
+        } catch {
+          // ignore
+        }
+      })
+
+      const resizeObserver = new ResizeObserver(() => {
+        try {
+          cached.fitAddon.fit()
+        } catch {
+          // ignore
+        }
+      })
+      resizeObserver.observe(container)
+
+      return () => {
+        resizeObserver.disconnect()
+        if (cached.term.element?.parentElement === container) {
+          container.removeChild(cached.term.element)
+        }
+      }
+    }
+
+    if (cached) {
+      cached.term.dispose()
+      sshTerminalCache.delete(hostId)
+      if (cached.terminalId) {
+        ipcRenderer.invoke('ssh-host:killTerminal', cached.terminalId)
+      }
+    }
+
+    const theme = getTerminalTheme()
+    const term = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily:
+        "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, Monaco, monospace",
+      theme,
+      convertEol: true,
+      scrollback: 10000,
+      allowProposedApi: true
+    })
+
+    const fitAddon = new FitAddon()
+    const unicode11 = new Unicode11Addon()
+    term.loadAddon(fitAddon)
+    term.loadAddon(unicode11)
+    term.unicode.activeVersion = '11'
+    term.open(container)
+
+    const entry = {
+      term,
+      fitAddon,
+      terminalId: null as string | null,
+      status: 'connecting' as const,
+      errorMsg: ''
+    }
+    sshTerminalCache.set(hostId, entry)
+
+    const updateStatus = (s: typeof status, err = '') => {
+      const e = sshTerminalCache.get(hostId)
+      if (e) {
+        ;(e as any).status = s
+        e.errorMsg = err
+      }
+      setStatus(s)
+      setErrorMsg(err)
+    }
+
+    term.onData((data) => {
+      const tid = terminalIdRef.current
+      if (tid) {
+        ipcRenderer.invoke('ssh-host:terminalInput', { terminalId: tid, data })
+      }
+    })
+
+    term.onResize(({ cols, rows }) => {
+      const tid = terminalIdRef.current
+      if (tid) {
+        ipcRenderer.invoke('ssh-host:terminalResize', { terminalId: tid, cols, rows })
+      }
+    })
+
+    const onData = (_: unknown, payload: { terminalId: string; data: string }) => {
+      if (payload.terminalId === terminalIdRef.current) {
+        term.write(payload.data)
+        updateStatus('running')
+      }
+    }
+
+    const onExit = (
+      _: unknown,
+      payload: { terminalId: string; code: number; error?: string }
+    ) => {
+      if (payload.terminalId === terminalIdRef.current) {
+        if (payload.error) {
+          updateStatus('error', payload.error)
+          term.writeln(`\r\n\x1b[31m${payload.error}\x1b[0m`)
+        } else {
+          updateStatus('exited')
+          term.writeln(
+            `\r\n\x1b[90m[SSH session exited with code ${payload.code}]\x1b[0m`
+          )
+        }
+      }
+    }
+
+    ipcRenderer.on('ssh-host:terminal-data', onData)
+    ipcRenderer.on('ssh-host:terminal-exit', onExit)
+
+    requestAnimationFrame(() => {
+      try {
+        fitAddon.fit()
+      } catch {
+        // ignore
+      }
+
+      term.writeln('\x1b[90mConnecting...\x1b[0m\r\n')
+      ipcRenderer
+        .invoke('ssh-host:spawnSshTerminal', {
+          hostId,
+          cols: term.cols,
+          rows: term.rows
+        })
+        .then((result: { success: boolean; terminalId?: string; error?: string }) => {
+          if (result.success && result.terminalId) {
+            terminalIdRef.current = result.terminalId
+            entry.terminalId = result.terminalId
+          } else if (!result.success) {
+            updateStatus('error', result.error || 'Failed to connect')
+          }
+        })
+        .catch((err: Error) => {
+          updateStatus('error', err.message)
+        })
+    })
+
+    const resizeObserver = new ResizeObserver(() => {
+      try {
+        fitAddon.fit()
+      } catch {
+        // ignore
+      }
+    })
+    resizeObserver.observe(container)
+
+    return () => {
+      ipcRenderer.removeListener('ssh-host:terminal-data', onData)
+      ipcRenderer.removeListener('ssh-host:terminal-exit', onExit)
+      resizeObserver.disconnect()
+      if (term.element?.parentElement === container) {
+        container.removeChild(term.element)
+      }
+    }
+  }, [hostId, restartCount])
+
+  const handleRestart = useCallback(() => {
+    const cached = sshTerminalCache.get(hostId)
+    if (cached?.terminalId) {
+      ipcRenderer.invoke('ssh-host:killTerminal', cached.terminalId)
+    }
+    if (cached) {
+      cached.term.dispose()
+      sshTerminalCache.delete(hostId)
+    }
+    terminalIdRef.current = null
+    setRestartCount((c) => c + 1)
+  }, [hostId])
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      {status === 'error' && (
+        <div className="flex items-center justify-center flex-1 text-secondary">
+          <div className="text-center space-y-3">
+            <AlertCircle size={32} className="mx-auto opacity-40" />
+            <p className="text-sm">{errorMsg || t('sshHost.connectionFailed')}</p>
+          </div>
+        </div>
+      )}
+      <div
+        ref={terminalRef}
+        className="flex-1 min-h-0"
+        style={{ padding: '8px' }}
+      />
+      <div className="shrink-0 border-t border-theme px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs text-secondary">
+          <TerminalIcon size={14} />
+          <span>SSH</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRestart}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover-bg text-secondary"
+            title="Restart"
+          >
+            <RotateCw size={12} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const LiveView = ({
   sessionId,
-  projectPath
+  projectPath,
+  hostId
 }: {
   sessionId: string
   projectPath: string
+  hostId?: string
 }) => {
   const store = useStore()
   const { t } = useTranslation()
@@ -392,11 +633,18 @@ const LiveView = ({
         // ignore
       }
 
-      term.writeln(`\x1b[90m$ claude --resume ${sessionId}\x1b[0m\r\n`)
+      const spawnChannel = hostId
+        ? 'ssh-host:spawnRemoteClaudeTerminal'
+        : 'claude-code:spawnTerminal'
+      const spawnCmd = hostId
+        ? `$ ssh ... -- claude --resume ${sessionId}`
+        : `$ claude --resume ${sessionId}`
+      term.writeln(`\x1b[90m${spawnCmd}\x1b[0m\r\n`)
       ipcRenderer
-        .invoke('claude-code:spawnTerminal', {
+        .invoke(spawnChannel, {
           sessionId,
           projectPath,
+          hostId,
           cols: term.cols,
           rows: term.rows
         })
@@ -431,7 +679,7 @@ const LiveView = ({
         container.removeChild(term.element)
       }
     }
-  }, [sessionId, projectPath, restartCount])
+  }, [sessionId, projectPath, hostId, restartCount])
 
   const handleStop = useCallback(() => {
     ipcRenderer.invoke('claude-code:killTerminal', sessionId)
@@ -501,10 +749,12 @@ const PAGE_SIZE = 50
 
 const HistoryView = ({
   sessionId,
-  projectId
+  projectId,
+  hostId
 }: {
   sessionId: string
   projectId: string | null
+  hostId?: string
 }) => {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -522,8 +772,14 @@ const HistoryView = ({
     setLoading(true)
     offsetRef.current = 0
 
+    const channel = hostId
+      ? 'ssh-host:getRemoteSessionMessages'
+      : 'claude-code:getSessionMessages'
+    const args = hostId
+      ? [channel, hostId, projectId, sessionId, 0, PAGE_SIZE]
+      : [channel, projectId, sessionId, 0, PAGE_SIZE]
     ipcRenderer
-      .invoke('claude-code:getSessionMessages', projectId, sessionId, 0, PAGE_SIZE)
+      .invoke(...(args as [string, ...any[]]))
       .then((msgs: any[]) => {
         if (cancelled) return
         setMessages(msgs || [])
@@ -540,7 +796,7 @@ const HistoryView = ({
     return () => {
       cancelled = true
     }
-  }, [sessionId, projectId])
+  }, [sessionId, projectId, hostId])
 
   // Auto-scroll on first load
   useEffect(() => {
@@ -555,14 +811,14 @@ const HistoryView = ({
   const loadMore = useCallback(() => {
     if (loading || !hasMore) return
     setLoading(true)
+    const channel = hostId
+      ? 'ssh-host:getRemoteSessionMessages'
+      : 'claude-code:getSessionMessages'
+    const loadArgs = hostId
+      ? [channel, hostId, projectId, sessionId, offsetRef.current, PAGE_SIZE]
+      : [channel, projectId, sessionId, offsetRef.current, PAGE_SIZE]
     ipcRenderer
-      .invoke(
-        'claude-code:getSessionMessages',
-        projectId,
-        sessionId,
-        offsetRef.current,
-        PAGE_SIZE
-      )
+      .invoke(...(loadArgs as [string, ...any[]]))
       .then((newMsgs: any[]) => {
         setMessages((prev) => [...prev, ...(newMsgs || [])])
         setHasMore((newMsgs?.length || 0) >= PAGE_SIZE)
@@ -570,7 +826,7 @@ const HistoryView = ({
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [loading, hasMore, projectId, sessionId])
+  }, [loading, hasMore, projectId, sessionId, hostId])
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
@@ -603,9 +859,10 @@ const HistoryView = ({
 interface SessionViewProps {
   sessionId?: string
   projectId?: string
+  hostId?: string
 }
 
-export const SessionView = observer(({ sessionId, projectId }: SessionViewProps) => {
+export const SessionView = observer(({ sessionId, projectId, hostId }: SessionViewProps) => {
   const store = useStore()
   const { t } = useTranslation()
   const [viewMode, setViewMode] = useState<ViewMode>('live')
@@ -613,9 +870,23 @@ export const SessionView = observer(({ sessionId, projectId }: SessionViewProps)
   const state = store.claudeCode.state
   const effectiveSessionId = sessionId ?? state.activeSessionId
   const effectiveProjectId = projectId ?? state.activeProjectId
-  const activeProject = effectiveProjectId
-    ? store.claudeCode.state.projects.find((p) => p.id === effectiveProjectId) || null
-    : store.claudeCode.activeProject
+  // Find project from either local projects or grouped (remote) projects
+  let activeProject: IClaudeProject | null = null
+  if (effectiveProjectId) {
+    activeProject = store.claudeCode.state.projects.find((p) => p.id === effectiveProjectId) || null
+    if (!activeProject) {
+      // Check remote projects in grouped list
+      for (const group of store.claudeCode.groupedProjects) {
+        const found = group.projects.find((p) => p.id === effectiveProjectId)
+        if (found) {
+          activeProject = found
+          break
+        }
+      }
+    }
+  } else {
+    activeProject = store.claudeCode.activeProject
+  }
 
   if (!effectiveSessionId) {
     return <EmptyState />
@@ -669,9 +940,14 @@ export const SessionView = observer(({ sessionId, projectId }: SessionViewProps)
           key={effectiveSessionId}
           sessionId={effectiveSessionId}
           projectPath={activeProject.path}
+          hostId={hostId}
         />
       ) : (
-        <HistoryView sessionId={effectiveSessionId} projectId={effectiveProjectId} />
+        <HistoryView
+          sessionId={effectiveSessionId}
+          projectId={effectiveProjectId}
+          hostId={hostId}
+        />
       )}
     </div>
   )

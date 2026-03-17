@@ -178,4 +178,37 @@ export const initModel = async () => {
       })
     }
   })
+
+  await knex.schema.hasTable('ssh_host').then((exists) => {
+    if (!exists) {
+      return knex.schema.createTable('ssh_host', (t) => {
+        t.string('id').primary()
+        t.text('name').notNullable()
+        t.text('hostname').notNullable()
+        t.integer('port').defaultTo(22)
+        t.text('username').notNullable()
+        t.text('authMethod').defaultTo('key')
+        t.text('identityFile').nullable()
+        t.text('password').nullable()
+        t.text('iconType').defaultTo('default')
+        t.text('iconValue').nullable()
+        t.integer('sort').defaultTo(0)
+        t.integer('created')
+        t.integer('updated')
+      })
+    }
+  })
+
+  await knex.schema.hasTable('ssh_remote_cache').then((exists) => {
+    if (!exists) {
+      return knex.schema.createTable('ssh_remote_cache', (t) => {
+        t.string('id').primary()
+        t.text('hostId').notNullable()
+        t.text('projectId').notNullable()
+        t.text('sessionId').notNullable()
+        t.text('data').nullable()
+        t.integer('cachedAt')
+      })
+    }
+  })
 }

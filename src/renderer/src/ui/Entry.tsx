@@ -13,6 +13,8 @@ import { ImportFolder } from './space/ImportFolder'
 import { SpaceFiles } from './space/Files'
 import { CenterArea } from './center/CenterArea'
 import { ClaudeCodeImportDialog } from './claude-code/ImportDialog'
+import { SshHostDialog } from './claude-code/SshHostDialog'
+import { RemoteImportDialog } from './claude-code/RemoteImportDialog'
 const Entry = observer(() => {
   const store = useStore()
   const claudeCodeMode = store.settings.state.claudeCodeMode
@@ -42,6 +44,8 @@ const Entry = observer(() => {
       <ImportFolder />
       <SpaceFiles />
       <ClaudeCodeImportDialog />
+      <SshHostDialog />
+      <RemoteImportDialog />
     </div>
   )
 })

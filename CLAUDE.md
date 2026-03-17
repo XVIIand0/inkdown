@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Inkdown is a WYSIWYG markdown editor and LLM dialogue tool built as an Electron desktop app with React. It supports GitHub Flavored Markdown and integrates multiple LLM providers (OpenAI, Claude, Gemini, OpenRouter, Ollama, LM Studio, DeepSeek, Qwen).
 
-**Status:** Development is paused / not actively maintained.
+**Status:** Active development — being extended into a Claude Code Command Center with SSH remote host support.
 
 ## Common Commands
 
@@ -51,3 +51,41 @@ There is no test framework or test suite configured.
 - Prettier: single quotes, no semicolons, 100 char width, no trailing commas
 - TypeScript with two tsconfig targets: `tsconfig.node.json` (main/preload) and `tsconfig.web.json` (renderer with React JSX)
 - Package manager: pnpm
+
+## Claude Code Command Center
+
+Inkdown has been extended with a "Claude Code mode" that acts as a command center for managing Claude Code sessions across local and remote (SSH) hosts.
+
+### Key Components
+
+- **`src/main/claude-code-cli.ts`**: Local Claude Code CLI integration — spawns `claude` via node-pty for interactive terminal sessions, handles `--resume` for session continuation
+- **`src/main/ssh-host.ts`**: SSH host management — CRUD, connection testing, remote project/session scanning via SSH, remote Claude terminal spawning (`ssh -t ... claude --resume`)
+- **`src/renderer/src/store/claude-code.ts`**: MobX store for projects/sessions, supports both local and remote (hostId-based routing)
+- **`src/renderer/src/store/ssh-host.ts`**: MobX store for SSH hosts, import dialog, resync
+- **`src/renderer/src/ui/claude-code/Sidebar.tsx`**: Sidebar with grouped Local/SSH host sections, project/session tree
+- **`src/renderer/src/ui/claude-code/SessionView.tsx`**: Session viewer with Live (xterm.js terminal) and History (parsed JSONL) modes
+- **`src/renderer/src/ui/claude-code/SshHostDialog.tsx`**: SSH host add/edit dialog
+- **`src/renderer/src/ui/claude-code/RemoteImportDialog.tsx`**: Remote project import dialog
+
+### SSH Remote Architecture
+
+- Remote session data is read via `ssh ... cat/head/tail | base64` to safely transfer JSONL content
+- Remote JSONL parsing extracts user/assistant messages, filters out `<command-` init messages and `[Request interrupted` markers
+- Live mode for remote sessions uses `ssh -t user@host -- claude --resume <sessionId>` via node-pty
+- SSH terminal processes are registered in a shared `terminalProcesses` map so the same input/resize IPC handlers work for both local and remote
+- Settings store `claudeCodeImportedProjects` uses `Record<string, string[]>` format: `{ local: [...], 'ssh-host-id': [...] }`
+
+### Database Tables
+
+- `ssh_host`: SSH host configurations (hostname, port, username, auth method, icon customization)
+- Standard knex migrations in `src/main/database/`
+
+### i18n
+
+Three locales: `en_US.json`, `zh_CN.json`, `zh_TW.json` — SSH host keys are under `sshHost.*`
+
+### Development Notes
+
+- Don't build after every change during active development — build only at the end
+- `node-pty` requires native module rebuild; on Windows, SSH path must be resolved to full path (`C:\Windows\System32\OpenSSH\ssh.exe`)
+- When sending data through SSH, use base64 encoding to avoid shell escaping and encoding issues (especially with CJK content and cp950 on Windows)

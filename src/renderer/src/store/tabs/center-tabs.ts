@@ -21,7 +21,7 @@ export class CenterTabStore extends StructStore<typeof state> {
     return this.state.tabs.find((t) => t.id === this.state.activeTabId) || null
   }
 
-  openSessionTab(projectId: string | null, sessionId: string, title: string) {
+  openSessionTab(projectId: string | null, sessionId: string, title: string, hostId?: string) {
     const existing = this.state.tabs.find(
       (t) => t.type === 'session' && t.sessionId === sessionId
     )
@@ -34,7 +34,8 @@ export class CenterTabStore extends StructStore<typeof state> {
       type: 'session',
       title,
       sessionId,
-      projectId: projectId || undefined
+      projectId: projectId || undefined,
+      hostId
     }
     this.setState((s) => {
       s.tabs.push(tab)
@@ -78,6 +79,26 @@ export class CenterTabStore extends StructStore<typeof state> {
       title: filename,
       filePath,
       dirty: false
+    }
+    this.setState((s) => {
+      s.tabs.push(tab)
+      s.activeTabId = tab.id
+    })
+  }
+
+  openSshTerminalTab(hostId: string, hostName: string) {
+    const existing = this.state.tabs.find(
+      (t) => t.type === 'ssh-terminal' && t.hostId === hostId
+    )
+    if (existing) {
+      this.setState({ activeTabId: existing.id })
+      return
+    }
+    const tab: CenterTab = {
+      id: crypto.randomUUID(),
+      type: 'ssh-terminal',
+      title: `SSH: ${hostName}`,
+      hostId
     }
     this.setState((s) => {
       s.tabs.push(tab)

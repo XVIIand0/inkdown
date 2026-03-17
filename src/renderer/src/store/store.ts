@@ -17,6 +17,7 @@ import { ClaudeCodeCliStore } from './claude-code-cli'
 import { CodeFileStore } from './code-file'
 import { MindNoteStore } from './mind-note'
 import { CenterTabStore } from './tabs/center-tabs'
+import { SshHostStore } from './ssh-host'
 import { HookAPI } from 'antd/es/modal/useModal'
 export class Store {
   public readonly system = new SystemApi()
@@ -35,6 +36,7 @@ export class Store {
   public readonly codeFile = new CodeFileStore(this)
   public readonly mindNote = new MindNoteStore(this)
   public readonly centerTabs = new CenterTabStore(this)
+  public readonly sshHost = new SshHostStore(this)
   public readonly msg: MessageInstance
   public readonly modal: HookAPI
   userDataPath = ''

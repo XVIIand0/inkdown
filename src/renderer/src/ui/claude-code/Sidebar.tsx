@@ -17,8 +17,12 @@ import {
   Search,
   X,
   Loader2,
-  ArrowLeft
+  ArrowLeft,
+  Monitor,
+  Server,
+  RefreshCw
 } from 'lucide-react'
+import { openMenus } from '@/ui/common/Menu'
 
 type ViewMode = 'sessions' | 'files' | 'notes'
 
@@ -119,7 +123,8 @@ const SessionList = observer(() => {
     store.centerTabs.openSessionTab(
       store.claudeCode.state.activeProjectId,
       sessionId,
-      session?.firstMessage || 'Session'
+      session?.firstMessage || 'Session',
+      store.claudeCode.state.activeHostId || undefined
     )
     store.claudeCode.selectSession(sessionId)
   }, [store])
@@ -317,7 +322,115 @@ const NoteItem = ({
   )
 }
 
-const ProjectItem = observer(({ project }: { project: IClaudeProject }) => {
+const HostGroupHeader = observer(({
+  hostId,
+  hostName,
+  iconType,
+  iconValue,
+  isExpanded,
+  onToggle,
+  projectCount
+}: {
+  hostId: string | null
+  hostName: string
+  iconType: string
+  iconValue?: string
+  isExpanded: boolean
+  onToggle: () => void
+  projectCount: number
+}) => {
+  const store = useStore()
+  const { t } = useTranslation()
+
+  const isSyncing = store.sshHost.state.testingHostId === hostId
+
+  const handleResync = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (hostId && !isSyncing) store.sshHost.resyncHost(hostId)
+  }
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!hostId) return
+    openMenus(e, [
+      {
+        text: t('sshHost.resyncHost'),
+        click: () => store.sshHost.resyncHost(hostId)
+      },
+      {
+        text: t('sshHost.editHost'),
+        click: () => store.sshHost.openHostDialog(
+          store.sshHost.state.hosts.find((h: any) => h.id === hostId)
+        )
+      },
+      {
+        text: t('sshHost.openTerminal'),
+        click: () => {
+          const host = store.sshHost.state.hosts.find((h: any) => h.id === hostId)
+          if (host) store.centerTabs.openSshTerminalTab(hostId, host.name)
+        }
+      },
+      {
+        text: t('sshHost.importRemoteProjects'),
+        click: () => store.sshHost.scanRemoteProjects(hostId)
+      },
+      {
+        text: t('sshHost.testConnection'),
+        click: () => store.sshHost.testHost(hostId)
+      },
+      { hr: true },
+      {
+        text: t('sshHost.deleteHost'),
+        click: () => store.sshHost.deleteHost(hostId)
+      }
+    ])
+  }
+
+  const renderIcon = () => {
+    if (iconType === 'color' && iconValue) {
+      return <span className={'w-3 h-3 rounded-full shrink-0'} style={{ background: iconValue }} />
+    }
+    if (iconType === 'image' && iconValue) {
+      return <img src={iconValue} className={'w-4 h-4 rounded shrink-0 object-cover'} />
+    }
+    if (!hostId) return <Monitor size={14} className={'shrink-0 text-secondary'} />
+    return <Server size={14} className={'shrink-0 text-secondary'} />
+  }
+
+  return (
+    <div
+      className={'flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover-bg select-none group/host'}
+      onClick={onToggle}
+      onContextMenu={handleContextMenu}
+    >
+      <ChevronRight
+        size={14}
+        className={
+          'shrink-0 text-secondary transition-transform ' +
+          (isExpanded ? 'rotate-90' : '')
+        }
+      />
+      {renderIcon()}
+      <span className={'text-xs font-medium md-text truncate flex-1'}>{hostName}</span>
+      {hostId && (
+        <button
+          className={
+            'p-0.5 rounded text-secondary hover-bg transition-colors opacity-0 ' +
+            'group-hover/host:opacity-100 ' +
+            (isSyncing ? '!opacity-100' : '')
+          }
+          onClick={handleResync}
+          title={t('sshHost.resyncHost')}
+        >
+          <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+        </button>
+      )}
+      <span className={'text-[10px] text-secondary'}>{projectCount}</span>
+    </div>
+  )
+})
+
+const ProjectItem = observer(({ project, hostId }: { project: IClaudeProject; hostId?: string | null }) => {
   const store = useStore()
   const { t } = useTranslation()
   const isActive = store.claudeCode.state.activeProjectId === project.id
@@ -328,9 +441,9 @@ const ProjectItem = observer(({ project }: { project: IClaudeProject }) => {
     const willExpand = !expanded
     setExpanded(willExpand)
     if (willExpand) {
-      store.claudeCode.selectProject(project.id)
+      store.claudeCode.selectProject(project.id, hostId)
     }
-  }, [expanded, project.id, store])
+  }, [expanded, project.id, hostId, store])
 
   const displayName = project.path.split(/[/\\]/).filter(Boolean).pop() || project.path
 
@@ -340,12 +453,25 @@ const ProjectItem = observer(({ project }: { project: IClaudeProject }) => {
     }
   }, [isActive, viewMode])
 
+  const [syncing, setSyncing] = useState(false)
+
+  const handleResyncProject = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!hostId || syncing) return
+    setSyncing(true)
+    try {
+      await store.sshHost.resyncProject(project.id, hostId)
+    } finally {
+      setSyncing(false)
+    }
+  }, [hostId, project.id, syncing, store])
+
   return (
     <div className={'border-b border-theme last:border-b-0'}>
       <div
         className={
           'flex items-center gap-1.5 py-2 px-2 cursor-pointer ' +
-          'hover-bg ' +
+          'hover-bg group/proj ' +
           (project.sessionCount === 0 ? 'opacity-50' : '')
         }
         onClick={handleToggle}
@@ -362,6 +488,19 @@ const ProjectItem = observer(({ project }: { project: IClaudeProject }) => {
         >
           {displayName}
         </span>
+        {hostId && (
+          <button
+            className={
+              'p-0.5 rounded text-secondary hover-bg transition-colors ' +
+              'opacity-0 group-hover/proj:opacity-100 shrink-0 ' +
+              (syncing ? '!opacity-100' : '')
+            }
+            onClick={handleResyncProject}
+            title={t('sshHost.resyncProject')}
+          >
+            <RefreshCw size={11} className={syncing ? 'animate-spin' : ''} />
+          </button>
+        )}
         {project.sessionCount > 0 && (
           <span className={'text-[10px] text-secondary shrink-0'}>
             {project.sessionCount}
@@ -385,24 +524,26 @@ const ProjectItem = observer(({ project }: { project: IClaudeProject }) => {
               <MessageSquare className={'w-3 h-3'} />
               {t('claudeCode.sessions')}
             </button>
-            <button
-              className={
-                'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ' +
-                (viewMode === 'files'
-                  ? 'md-text'
-                  : 'text-secondary hover-bg')
-              }
-              style={viewMode === 'files' ? { background: 'var(--md-bg-mute)' } : undefined}
-              onClick={() => {
-                setViewMode('files')
-                if (store.claudeCode.state.fileTree.length === 0) {
-                  store.claudeCode.loadFileTree()
+            {!hostId && (
+              <button
+                className={
+                  'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ' +
+                  (viewMode === 'files'
+                    ? 'md-text'
+                    : 'text-secondary hover-bg')
                 }
-              }}
-            >
-              <FolderOpen className={'w-3 h-3'} />
-              {t('claudeCode.files')}
-            </button>
+                style={viewMode === 'files' ? { background: 'var(--md-bg-mute)' } : undefined}
+                onClick={() => {
+                  setViewMode('files')
+                  if (store.claudeCode.state.fileTree.length === 0) {
+                    store.claudeCode.loadFileTree()
+                  }
+                }}
+              >
+                <FolderOpen className={'w-3 h-3'} />
+                {t('claudeCode.files')}
+              </button>
+            )}
             <button
               className={
                 'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ' +
@@ -654,13 +795,16 @@ export const ClaudeCodeSidebar = observer(() => {
   const store = useStore()
   const { t } = useTranslation()
   const [localQuery, setLocalQuery] = useState('')
+  const [localExpanded, setLocalExpanded] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     store.claudeCode.loadProjects()
+    store.sshHost.loadHosts()
   }, [store])
 
   const projects = store.claudeCode.state.projects
+  const groupedProjects = store.claudeCode.groupedProjects
   const isSearchActive = store.claudeCode.state.searchQuery !== ''
     || store.claudeCode.state.searchLoading
 
@@ -753,7 +897,33 @@ export const ClaudeCodeSidebar = observer(() => {
         </div>
       ) : (
         <div className={'flex-1 overflow-y-auto'}>
-          {projects.length === 0 ? (
+          {groupedProjects && groupedProjects.length > 0 ? (
+            groupedProjects.map((group: any) => {
+              const isExpanded = group.hostId === null
+                ? localExpanded
+                : store.sshHost.state.expandedHostIds.includes(group.hostId!)
+
+              return (
+                <div key={group.hostId || 'local'}>
+                  <HostGroupHeader
+                    hostId={group.hostId}
+                    hostName={group.hostName}
+                    iconType={group.iconType}
+                    iconValue={group.iconValue}
+                    isExpanded={isExpanded}
+                    onToggle={() => {
+                      if (group.hostId === null) setLocalExpanded(!localExpanded)
+                      else store.sshHost.toggleHostExpanded(group.hostId!)
+                    }}
+                    projectCount={group.projects.length}
+                  />
+                  {isExpanded && group.projects.map((p: IClaudeProject) => (
+                    <ProjectItem key={p.id} project={p} hostId={group.hostId} />
+                  ))}
+                </div>
+              )
+            })
+          ) : projects.length === 0 ? (
             <div className={'flex flex-col items-center justify-center h-32 text-secondary'}>
               <Terminal className={'w-8 h-8 mb-2 opacity-30'} />
               <span className={'text-xs'}>{t('claudeCode.noProjects')}</span>
@@ -764,6 +934,16 @@ export const ClaudeCodeSidebar = observer(() => {
             ))
           )}
           <GlobalNotes />
+          <button
+            className={
+              'flex items-center gap-2 w-full px-3 py-2 text-xs text-secondary ' +
+              'hover-bg transition-colors'
+            }
+            onClick={() => store.sshHost.openHostDialog()}
+          >
+            <Plus size={14} />
+            {t('sshHost.addHost')}
+          </button>
         </div>
       )}
     </div>

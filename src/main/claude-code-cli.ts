@@ -24,7 +24,7 @@ function getClaudePath(): string {
 }
 
 // PTY terminal processes — real pseudo-terminal for interactive claude sessions
-const terminalProcesses = new Map<string, any>()
+export const terminalProcesses = new Map<string, any>()
 
 // Strip Claude session env vars so spawned processes don't think they're nested
 function getCleanEnv(): NodeJS.ProcessEnv {

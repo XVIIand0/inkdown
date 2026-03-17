@@ -1,4 +1,4 @@
-export type CenterTabType = 'session' | 'mind-note' | 'code-file'
+export type CenterTabType = 'session' | 'mind-note' | 'code-file' | 'ssh-terminal'
 
 export interface CenterTab {
   id: string
@@ -11,4 +11,5 @@ export interface CenterTab {
   language?: string
   dirty?: boolean
   attention?: boolean
+  hostId?: string
 }

@@ -3,6 +3,13 @@ import { readdirSync, readFileSync, statSync, existsSync, createReadStream } fro
 import { join } from 'path'
 import { homedir } from 'os'
 import { createInterface } from 'readline'
+import {
+  parseJsonlLine,
+  extractUserText,
+  extractFirstUserMessage,
+  extractLastTimestamp,
+  parseSessionMessages
+} from './claude-code-parser'
 
 const claudeDir = join(homedir(), '.claude')
 const projectsDir = join(claudeDir, 'projects')
@@ -26,14 +33,6 @@ function decodeProjectDirName(dirName: string): string {
   const drive = dirName.substring(0, sepIndex)
   const rest = dirName.substring(sepIndex + 2)
   return drive + ':\\' + rest.replace(/-/g, '\\')
-}
-
-function parseJsonlLine(line: string): Record<string, any> | null {
-  try {
-    return JSON.parse(line)
-  } catch {
-    return null
-  }
 }
 
 ipcMain.handle('claude-code:getProjects', async () => {
@@ -87,34 +86,8 @@ ipcMain.handle('claude-code:getSessions', async (_, projectId: string) => {
         const content = readFileSync(filePath, 'utf-8')
         const lines = content.split('\n').filter((l) => l.trim())
         messageCount = lines.length
-
-        for (const line of lines) {
-          const parsed = parseJsonlLine(line)
-          if (parsed && parsed.type === 'user') {
-            let msg = ''
-            const rawContent = parsed.message?.content
-            if (typeof rawContent === 'string') {
-              msg = rawContent
-            } else if (Array.isArray(rawContent)) {
-              const textBlocks = rawContent.filter(
-                (b: Record<string, any>) => b.type === 'text'
-              )
-              msg = textBlocks.map((b: Record<string, any>) => b.text || '').join(' ').trim()
-            }
-            // Skip tool results and system messages, find first real user message
-            if (!msg || msg.startsWith('[Request interrupted') || msg.startsWith('<command-')) continue
-            firstMessage = msg.length > 100 ? msg.substring(0, 100) + '...' : msg
-            break
-          }
-        }
-
-        const lastLine = lines[lines.length - 1]
-        if (lastLine) {
-          const parsed = parseJsonlLine(lastLine)
-          if (parsed?.timestamp) {
-            lastTimestamp = parsed.timestamp
-          }
-        }
+        firstMessage = extractFirstUserMessage(lines)
+        lastTimestamp = extractLastTimestamp(lines[lines.length - 1])
       } catch {}
 
       return { id, firstMessage, lastTimestamp, messageCount }
@@ -138,81 +111,7 @@ ipcMain.handle(
     try {
       const content = readFileSync(filePath, 'utf-8')
       const lines = content.split('\n').filter((l) => l.trim())
-      const messages: Array<{
-        uuid: string
-        type: string
-        content: string
-        timestamp: string
-        model?: string
-        tokens?: { input: number; output: number }
-      }> = []
-
-      for (const line of lines) {
-        const parsed = parseJsonlLine(line)
-        if (!parsed) continue
-
-        if (parsed.type === 'user') {
-          const rawContent = parsed.message?.content
-          let text = ''
-          if (typeof rawContent === 'string') {
-            text = rawContent
-          } else if (Array.isArray(rawContent)) {
-            // Extract only text blocks, skip tool_result blocks
-            const textBlocks = rawContent.filter(
-              (b: Record<string, any>) => b.type === 'text'
-            )
-            text = textBlocks.map((b: Record<string, any>) => b.text || '').join('\n').trim()
-          }
-          // Skip messages that are purely tool results or system noise
-          if (text && !text.startsWith('[Request interrupted')) {
-            messages.push({
-              uuid: parsed.uuid || '',
-              type: 'user',
-              content: text,
-              timestamp: parsed.timestamp || ''
-            })
-          }
-        } else if (parsed.type === 'assistant') {
-          const contentArr = parsed.message?.content
-          let text = ''
-          if (Array.isArray(contentArr)) {
-            // Extract only text blocks, skip tool_use blocks
-            const textBlocks = contentArr.filter(
-              (b: Record<string, any>) => b.type === 'text'
-            )
-            text = textBlocks.map((b: Record<string, any>) => b.text || '').join('\n').trim()
-          } else if (typeof contentArr === 'string') {
-            text = contentArr
-          }
-          if (text) {
-            const entry: {
-              uuid: string
-              type: string
-              content: string
-              timestamp: string
-              model?: string
-              tokens?: { input: number; output: number }
-            } = {
-              uuid: parsed.uuid || '',
-              type: 'assistant',
-              content: text,
-              timestamp: parsed.timestamp || ''
-            }
-            if (parsed.message?.model) {
-              entry.model = parsed.message.model
-            }
-            if (parsed.message?.usage) {
-              entry.tokens = {
-                input: parsed.message.usage.input_tokens || 0,
-                output: parsed.message.usage.output_tokens || 0
-              }
-            }
-            messages.push(entry)
-          }
-        }
-      }
-
-      return messages.slice(offset, offset + limit)
+      return parseSessionMessages(lines, offset, limit)
     } catch {
       return []
     }
@@ -263,8 +162,7 @@ ipcMain.handle('claude-code:getProjectFiles', async (_, projectPath: string) => 
 
 function extractTextContent(parsed: Record<string, any>): string {
   if (parsed.type === 'user') {
-    const content = parsed.message?.content
-    return typeof content === 'string' ? content : ''
+    return extractUserText(parsed)
   }
   if (parsed.type === 'assistant') {
     const content = parsed.message?.content

@@ -3,7 +3,7 @@ import { useCallback, useRef } from 'react'
 import { useStore } from '@/store/store'
 import { useLocalState } from '@/hooks/useLocalState'
 import { useTranslation } from 'react-i18next'
-import { X, MessageSquare, Brain, FileCode } from 'lucide-react'
+import { X, MessageSquare, Brain, FileCode, Terminal } from 'lucide-react'
 import { CenterTab } from '@/store/tabs/types'
 import { openMenus, IMenu } from '@/ui/common/Menu'
 
@@ -15,6 +15,8 @@ const TabIcon = ({ type }: { type: CenterTab['type'] }) => {
       return <Brain className={'w-3.5 h-3.5 shrink-0'} />
     case 'code-file':
       return <FileCode className={'w-3.5 h-3.5 shrink-0'} />
+    case 'ssh-terminal':
+      return <Terminal className={'w-3.5 h-3.5 shrink-0'} />
   }
 }
 

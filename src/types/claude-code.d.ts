@@ -4,6 +4,7 @@ interface IClaudeProject {
   path: string
   sessionCount: number
   hasMemory: boolean
+  hostId?: string
 }
 
 interface IClaudeSession {

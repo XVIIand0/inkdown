@@ -26,6 +26,7 @@ async function bootstrap() {
   await import('./handle')
   await import('./claude-code')
   await import('./claude-code-cli')
+  await import('./ssh-host')
   const { registerUpdate } = await import('./update')
 
   app.whenReady().then(async () => {

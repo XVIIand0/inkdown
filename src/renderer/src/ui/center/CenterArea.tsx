@@ -2,7 +2,7 @@ import { observer } from 'mobx-react-lite'
 import { useStore } from '@/store/store'
 import { useTranslation } from 'react-i18next'
 import { TabBar } from '../tabs/TabBar'
-import { SessionView } from '../claude-code/SessionView'
+import { SessionView, SshTerminalView } from '../claude-code/SessionView'
 import { MindNoteEditor } from '../mind-note/MindNoteEditor'
 import { CodeFileEditor } from '../code-editor/CodeFileEditor'
 import { Bot } from 'lucide-react'
@@ -32,6 +32,7 @@ export const CenterArea = observer(() => {
           <SessionView
             sessionId={activeTab.sessionId}
             projectId={activeTab.projectId}
+            hostId={activeTab.hostId}
           />
         )}
         {activeTab?.type === 'mind-note' && activeTab.noteId && (
@@ -39,6 +40,9 @@ export const CenterArea = observer(() => {
         )}
         {activeTab?.type === 'code-file' && activeTab.filePath && (
           <CodeFileEditor filePath={activeTab.filePath} />
+        )}
+        {activeTab?.type === 'ssh-terminal' && activeTab.hostId && (
+          <SshTerminalView hostId={activeTab.hostId} />
         )}
       </div>
     </div>

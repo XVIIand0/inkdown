@@ -3,8 +3,9 @@ import { initModel, knex } from './model'
 import { IChat, IMessage, ISetting, IClient, ISpace, IDoc, IFile, IKeyboard } from 'types/model'
 import { nid, omit } from '../utils'
 import { join } from 'path'
-import { existsSync } from 'fs'
-import { unlink } from 'fs/promises'
+import { existsSync, mkdirSync } from 'fs'
+import { unlink, writeFile } from 'fs/promises'
+import crypto from 'crypto'
 import * as lancedb from '@lancedb/lancedb'
 import * as arrow from 'apache-arrow'
 import { pipeline, env, FeatureExtractionPipeline } from '@xenova/transformers'
@@ -637,6 +638,47 @@ ipcMain.handle('mind-note:delete', async (_, id: string) => {
 
 ipcMain.handle('mind-note:getScopes', async () => {
   return knex('mind_note').select('scope').count('* as count').groupBy('scope')
+})
+
+// SSH Host handlers
+ipcMain.handle('ssh-host:getAll', async () => {
+  return knex.select('*').from('ssh_host').orderBy('sort', 'asc').orderBy('name', 'asc')
+})
+
+ipcMain.handle('ssh-host:create', async (_, host: Omit<ISshHost, 'id' | 'created' | 'updated'>) => {
+  const now = Date.now()
+  const record = {
+    ...host,
+    id: crypto.randomUUID(),
+    created: now,
+    updated: now
+  }
+  await knex('ssh_host').insert(record)
+  return record
+})
+
+ipcMain.handle('ssh-host:update', async (_, id: string, data: Partial<ISshHost>) => {
+  return knex('ssh_host').where('id', id).update({
+    ...data,
+    updated: Date.now()
+  })
+})
+
+ipcMain.handle('ssh-host:delete', async (_, id: string) => {
+  await knex('ssh_remote_cache').where('hostId', id).delete()
+  return knex('ssh_host').where('id', id).delete()
+})
+
+ipcMain.handle('ssh-host:uploadIcon', async (_, base64Data: string) => {
+  const iconsDir = join(app.getPath('userData'), 'ssh-icons')
+  if (!existsSync(iconsDir)) {
+    mkdirSync(iconsDir, { recursive: true })
+  }
+  const fileName = `${crypto.randomUUID()}.png`
+  const filePath = join(iconsDir, fileName)
+  const buffer = Buffer.from(base64Data, 'base64')
+  await writeFile(filePath, buffer)
+  return filePath
 })
 
 const queryVector = async ({

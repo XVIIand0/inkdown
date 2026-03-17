@@ -41,7 +41,7 @@ const state = {
   codeTabSize: 2,
   showChatBot: false,
   claudeCodeMode: true,
-  claudeCodeImportedProjects: [] as string[],
+  claudeCodeImportedProjects: [] as any,
   language: getSystemLanguage() as 'zh' | 'zh-TW' | 'en',
   modelOptions: {
     temperature: {
@@ -145,6 +145,13 @@ export class SettingsStore extends StructStore<typeof state> {
         }
       }
     })
+    // Migrate old format
+    const imported = this.state.claudeCodeImportedProjects
+    if (Array.isArray(imported)) {
+      const migrated = { local: imported }
+      this.setState({ claudeCodeImportedProjects: migrated as any })
+      await this.setSetting('claudeCodeImportedProjects', migrated)
+    }
     i18next.changeLanguage(this.state.language)
     this.setState({ ready: true })
     this.changeTheme()
