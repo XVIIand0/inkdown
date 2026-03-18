@@ -233,13 +233,14 @@ ipcMain.handle('claude-code:getProjectFilesFlat', async (_, projectPath: string)
       for (const entry of entries) {
         if (results.length >= MAX_FILES) break
         const fullPath = join(dirPath, entry.name)
-        const rel = relative(projectPath, fullPath).replace(/\\/g, '/')
-        if (ig.ignores(entry.isDirectory() ? rel + '/' : rel)) continue
         if (entry.isDirectory()) {
+          const rel = relative(projectPath, fullPath).replace(/\\/g, '/') + '/'
+          if (ig.ignores(rel)) continue
           walk(fullPath, depth + 1)
         } else {
           const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop()!.toLowerCase() : ''
           if (BINARY_EXTENSIONS.has(ext)) continue
+          const rel = relative(projectPath, fullPath).replace(/\\/g, '/')
           results.push({ rel, abs: fullPath })
         }
       }
@@ -266,9 +267,10 @@ ipcMain.handle('claude-code:getProjectFiles', async (_, projectPath: string) => 
       const entries = readdirSync(dirPath, { withFileTypes: true })
       return entries
         .filter((e) => {
+          if (!e.isDirectory()) return true
           const fullPath = join(dirPath, e.name)
-          const rel = relative(projectPath, fullPath).replace(/\\/g, '/')
-          return !ig.ignores(e.isDirectory() ? rel + '/' : rel)
+          const rel = relative(projectPath, fullPath).replace(/\\/g, '/') + '/'
+          return !ig.ignores(rel)
         })
         .sort((a, b) => {
           if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
