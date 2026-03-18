@@ -42,6 +42,8 @@ const state = {
   showChatBot: false,
   claudeCodeMode: true,
   claudeCodeImportedProjects: [] as any,
+  claudeCodeRecentFiles: [] as any,
+  claudeCodeLayout: null as any,
   language: getSystemLanguage() as 'zh' | 'zh-TW' | 'en',
   modelOptions: {
     temperature: {

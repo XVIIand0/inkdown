@@ -12,4 +12,26 @@ export interface CenterTab {
   dirty?: boolean
   attention?: boolean
   hostId?: string
+  borderColor?: string
 }
+
+export type SplitDirection = 'horizontal' | 'vertical'
+
+export interface LayoutSplitNode {
+  type: 'split'
+  id: string
+  direction: SplitDirection
+  children: LayoutNode[]
+  sizes: number[]
+}
+
+export interface LayoutTabGroup {
+  type: 'tab-group'
+  id: string
+  tabIds: string[]
+  activeTabId: string | null
+}
+
+export type LayoutNode = LayoutSplitNode | LayoutTabGroup
+
+export type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center'
