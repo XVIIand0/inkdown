@@ -557,7 +557,7 @@ export const SshHostDialog = observer(() => {
                     className={'text-xs text-secondary hover:text-current transition-colors'}
                     onClick={() => setBorderColor('')}
                   >
-                    {t('centerTabs.clearColor')}
+                    {t('tabs.clearColor')}
                   </button>
                 </>
               ) : (

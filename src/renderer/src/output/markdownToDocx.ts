@@ -43,7 +43,7 @@ export const markdownToDocx = async (markdown: string, options: MarkdownToDocxOp
 
   // Generate and save docx
   const buffer = await Packer.toBuffer(doc)
-  fileSave(new Blob([buffer]), { fileName: filename })
+  fileSave(new Blob([buffer as BlobPart]), { fileName: filename })
 }
 
 /**
