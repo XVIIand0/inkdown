@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron'
+import type { Bound } from './window'
 import { existsSync, readFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 
@@ -20,7 +21,7 @@ if (existsSync(configPath)) {
 // Dynamic imports so they run AFTER setPath
 async function bootstrap() {
   const { electronApp, optimizer } = await import('@electron-toolkit/utils')
-  const { Bound, createWindow, lastCloseWindow, winMap } = await import('./window')
+  const { createWindow, lastCloseWindow, winMap } = await import('./window')
   const { knex } = await import('./database/model')
   const { modelReady } = await import('./database/api')
   await import('./handle')

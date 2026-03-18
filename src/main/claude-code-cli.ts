@@ -14,11 +14,21 @@ function getPty(): typeof import('node-pty') {
 
 function getClaudePath(): string {
   if (process.platform === 'win32') {
-    // Prefer .exe for direct spawn (needed for node-pty)
     const localExe = join(homedir(), '.local', 'bin', 'claude.exe')
     if (existsSync(localExe)) return localExe
     const localCmd = join(homedir(), '.claude', 'local', 'claude.cmd')
     if (existsSync(localCmd)) return localCmd
+  } else {
+    // macOS/Linux: check common install locations since PATH may be minimal
+    // when app is launched from Finder/dock
+    const candidates = [
+      join(homedir(), '.local', 'bin', 'claude'),
+      '/usr/local/bin/claude',
+      '/opt/homebrew/bin/claude'
+    ]
+    for (const p of candidates) {
+      if (existsSync(p)) return p
+    }
   }
   return 'claude'
 }
@@ -29,6 +39,17 @@ export const terminalProcesses = new Map<string, any>()
 // Strip Claude session env vars so spawned processes don't think they're nested
 function getCleanEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env }
+  // Ensure common bin paths are in PATH (Finder-launched apps have minimal PATH)
+  const extraPaths = [
+    join(homedir(), '.local', 'bin'),
+    '/usr/local/bin',
+    '/opt/homebrew/bin'
+  ]
+  const currentPath = env.PATH || ''
+  const missing = extraPaths.filter((p) => !currentPath.includes(p))
+  if (missing.length) {
+    env.PATH = [...missing, currentPath].join(':')
+  }
   for (const key of Object.keys(env)) {
     if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_CODE')) {
       delete env[key]
@@ -260,13 +281,6 @@ ipcMain.handle(
       /Approve\?/i,
       /Press Enter to/i,
       /waiting for.*permission/i
-    ]
-
-    // Patterns that indicate Claude finished a task (back to input prompt)
-    const completionPatterns = [
-      /\$\s*$/m,
-      /❯\s*$/m,
-      />\s*$/m
     ]
 
     ptyProcess.onData((data: string) => {
