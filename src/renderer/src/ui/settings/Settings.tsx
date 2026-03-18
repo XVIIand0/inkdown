@@ -1,9 +1,10 @@
 import { observer } from 'mobx-react-lite'
-import { FileBox, KeyboardIcon, PenLine, X } from 'lucide-react'
+import { FileBox, KeyboardIcon, PenLine, Terminal, X } from 'lucide-react'
 import { useStore } from '@/store/store'
 import { SetEditor } from './Editor'
 import { Keyboard } from './Keyboard'
 import { ModelSettings } from './Model'
+import { ClaudeCodeSettings } from './ClaudeCode'
 import { useTranslation } from 'react-i18next'
 
 export const Settings = observer(() => {
@@ -25,6 +26,11 @@ export const Settings = observer(() => {
       key: 3,
       label: t('settings.tabs.keyboard'),
       icon: <KeyboardIcon size={16} />
+    },
+    {
+      key: 4,
+      label: t('settings.tabs.claudeCode'),
+      icon: <Terminal size={16} />
     }
   ]
 
@@ -101,6 +107,7 @@ export const Settings = observer(() => {
                 {core.settings.data.setTab === 1 && <SetEditor />}
                 {core.settings.data.setTab === 2 && <ModelSettings />}
                 {core.settings.data.setTab === 3 && <Keyboard />}
+                {core.settings.data.setTab === 4 && <ClaudeCodeSettings />}
               </div>
             </div>
           </div>

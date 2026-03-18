@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next'
 import { Select } from '@lobehub/ui'
 import { useCallback, useEffect, useState } from 'react'
 
-import { Terminal } from 'lucide-react'
 import { themes } from '@/themes/themes'
 
 const ipcRenderer = window.electron.ipcRenderer
@@ -52,34 +51,6 @@ const DataPathSetting = () => {
         {dataPath && (
           <Button size={'small'} onClick={handleReset}>{t('settings.data_path_reset')}</Button>
         )}
-      </div>
-    </div>
-  )
-}
-
-const ClaudeCodeSetting = () => {
-  const store = useStore()
-  const { t } = useTranslation()
-  const importedCount = store.settings.state.claudeCodeImportedProjects?.length || 0
-
-  return (
-    <div className={'flex justify-between items-center py-3'}>
-      <div className={'text-sm flex items-center gap-1.5'}>
-        <Terminal className={'w-4 h-4 text-blue-500'} />
-        <span>{t('claudeCode.title')}</span>
-        {importedCount > 0 && (
-          <span className={'text-xs text-gray-400 ml-1'}>
-            ({t('claudeCode.imported', { count: importedCount })})
-          </span>
-        )}
-      </div>
-      <div>
-        <Button
-          size={'small'}
-          onClick={() => store.claudeCode.scanAndShowImportDialog()}
-        >
-          {t('claudeCode.rescan')}
-        </Button>
       </div>
     </div>
   )
@@ -165,7 +136,6 @@ export const SetEditor = observer(() => {
         </div>
       </div>
       <DataPathSetting />
-      <ClaudeCodeSetting />
       <div className={'flex justify-between items-center py-3'}>
         <div className={'text-sm'}>
           <span className={'mr-1'}>{t('settings.theme')}</span>
