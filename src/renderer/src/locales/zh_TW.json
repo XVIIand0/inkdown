@@ -385,6 +385,7 @@
     "pinSession": "置頂",
     "unpinSession": "取消置頂",
     "projectSettings": "設定",
+    "iconLucide": "圖示",
     "iconEmoji": "表情",
     "iconColor": "顏色",
     "iconImage": "圖片",
@@ -393,7 +394,9 @@
     "manageProjects": "管理專案",
     "manageProjectsDesc": "選擇要在側邊欄顯示的專案並設定自訂名稱。找到 {{count}} 個專案。",
     "manageProjectsSave": "儲存",
-    "displayNamePlaceholder": "自訂名稱..."
+    "displayNamePlaceholder": "自訂名稱...",
+    "openTerminal": "開啟終端",
+    "customize": "自訂"
   },
   "tabs": {
     "close": "關閉",

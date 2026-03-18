@@ -385,6 +385,7 @@
     "pinSession": "Pin",
     "unpinSession": "Unpin",
     "projectSettings": "Settings",
+    "iconLucide": "Icon",
     "iconEmoji": "Emoji",
     "iconColor": "Color",
     "iconImage": "Image",
@@ -393,7 +394,9 @@
     "manageProjects": "Manage Projects",
     "manageProjectsDesc": "Toggle which projects are visible in the sidebar and set custom display names. {{count}} projects found.",
     "manageProjectsSave": "Save",
-    "displayNamePlaceholder": "Custom name..."
+    "displayNamePlaceholder": "Custom name...",
+    "openTerminal": "Open Terminal",
+    "customize": "Customize"
   },
   "tabs": {
     "close": "Close",

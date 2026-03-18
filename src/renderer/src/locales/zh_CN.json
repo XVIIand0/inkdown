@@ -385,6 +385,7 @@
     "pinSession": "置顶",
     "unpinSession": "取消置顶",
     "projectSettings": "设置",
+    "iconLucide": "图标",
     "iconEmoji": "表情",
     "iconColor": "颜色",
     "iconImage": "图片",
@@ -393,7 +394,9 @@
     "manageProjects": "管理项目",
     "manageProjectsDesc": "选择要在侧边栏显示的项目并设置自定义名称。找到 {{count}} 个项目。",
     "manageProjectsSave": "保存",
-    "displayNamePlaceholder": "自定义名称..."
+    "displayNamePlaceholder": "自定义名称...",
+    "openTerminal": "打开终端",
+    "customize": "自定义"
   },
   "tabs": {
     "close": "关闭",
