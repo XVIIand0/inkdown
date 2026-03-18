@@ -396,6 +396,10 @@
     "closeOthers": "關閉其他分頁",
     "closeRight": "關閉右側分頁",
     "closeAll": "關閉所有分頁",
+    "splitRight": "向右拆分",
+    "splitDown": "向下拆分",
+    "borderColor": "邊框顏色",
+    "clearColor": "清除",
     "noOpenTabs": "從側邊欄開啟對話或筆記"
   },
   "codeEditor": {
@@ -454,5 +458,11 @@
     "latency": "{{ms}}ms",
     "resyncHost": "重新同步所有專案",
     "resyncProject": "重新同步對話"
+  },
+  "fileFinder": {
+    "placeholder": "依名稱搜尋檔案...",
+    "noProject": "請先選擇一個專案以搜尋檔案",
+    "recentFiles": "最近的檔案",
+    "noResults": "沒有符合的檔案"
   }
 }

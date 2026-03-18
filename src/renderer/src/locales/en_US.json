@@ -396,6 +396,10 @@
     "closeOthers": "Close Other Tabs",
     "closeRight": "Close Tabs to the Right",
     "closeAll": "Close All Tabs",
+    "splitRight": "Split Right",
+    "splitDown": "Split Down",
+    "borderColor": "Border Color",
+    "clearColor": "Clear",
     "noOpenTabs": "Open a session or note from the sidebar"
   },
   "codeEditor": {
@@ -454,5 +458,11 @@
     "latency": "{{ms}}ms",
     "resyncHost": "Resync All Projects",
     "resyncProject": "Resync Sessions"
+  },
+  "fileFinder": {
+    "placeholder": "Search files by name...",
+    "noProject": "Select a project first to search files",
+    "recentFiles": "Recent Files",
+    "noResults": "No matching files"
   }
 }

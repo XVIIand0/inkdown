@@ -396,6 +396,10 @@
     "closeOthers": "关闭其他标签页",
     "closeRight": "关闭右侧标签页",
     "closeAll": "关闭所有标签页",
+    "splitRight": "向右拆分",
+    "splitDown": "向下拆分",
+    "borderColor": "边框颜色",
+    "clearColor": "清除",
     "noOpenTabs": "从侧边栏打开对话或笔记"
   },
   "codeEditor": {
@@ -454,5 +458,11 @@
     "latency": "{{ms}}ms",
     "resyncHost": "重新同步所有项目",
     "resyncProject": "重新同步会话"
+  },
+  "fileFinder": {
+    "placeholder": "按名称搜索文件...",
+    "noProject": "请先选择一个项目以搜索文件",
+    "recentFiles": "最近的文件",
+    "noResults": "没有匹配的文件"
   }
 }
