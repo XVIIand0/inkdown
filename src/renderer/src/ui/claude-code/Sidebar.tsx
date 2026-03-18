@@ -22,7 +22,8 @@ import {
   Server,
   RefreshCw,
   Pin,
-  Settings
+  Settings,
+  FolderCog
 } from 'lucide-react'
 import { openMenus } from '@/ui/common/Menu'
 import { IconPicker, IconType, renderIconPreview } from './IconPicker'
@@ -462,48 +463,46 @@ const HostGroupHeader = observer(({
   const store = useStore()
   const { t } = useTranslation()
 
-  const isSyncing = store.sshHost.state.testingHostId === hostId
-
-  const handleResync = (e: React.MouseEvent) => {
+  const handleManageProjects = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (hostId && !isSyncing) store.sshHost.resyncHost(hostId)
+    store.claudeCode.openManageProjectsDialog(hostId)
   }
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
-    if (!hostId) return
-    openMenus(e, [
+    const items: any[] = [
       {
-        text: t('sshHost.resyncHost'),
-        click: () => store.sshHost.resyncHost(hostId)
-      },
-      {
-        text: t('sshHost.editHost'),
-        click: () => store.sshHost.openHostDialog(
-          store.sshHost.state.hosts.find((h: any) => h.id === hostId)
-        )
-      },
-      {
-        text: t('sshHost.openTerminal'),
-        click: () => {
-          const host = store.sshHost.state.hosts.find((h: any) => h.id === hostId)
-          if (host) store.centerTabs.openSshTerminalTab(hostId, host.name)
-        }
-      },
-      {
-        text: t('sshHost.importRemoteProjects'),
-        click: () => store.sshHost.scanRemoteProjects(hostId)
-      },
-      {
-        text: t('sshHost.testConnection'),
-        click: () => store.sshHost.testHost(hostId)
-      },
-      { hr: true },
-      {
-        text: t('sshHost.deleteHost'),
-        click: () => store.sshHost.deleteHost(hostId)
+        text: t('claudeCode.manageProjects'),
+        click: () => store.claudeCode.openManageProjectsDialog(hostId)
       }
-    ])
+    ]
+    if (hostId) {
+      items.push(
+        {
+          text: t('sshHost.editHost'),
+          click: () => store.sshHost.openHostDialog(
+            store.sshHost.state.hosts.find((h: any) => h.id === hostId)
+          )
+        },
+        {
+          text: t('sshHost.openTerminal'),
+          click: () => {
+            const host = store.sshHost.state.hosts.find((h: any) => h.id === hostId)
+            if (host) store.centerTabs.openSshTerminalTab(hostId, host.name)
+          }
+        },
+        {
+          text: t('sshHost.testConnection'),
+          click: () => store.sshHost.testHost(hostId)
+        },
+        { hr: true },
+        {
+          text: t('sshHost.deleteHost'),
+          click: () => store.sshHost.deleteHost(hostId)
+        }
+      )
+    }
+    openMenus(e, items)
   }
 
   const renderIcon = () => {
@@ -528,19 +527,16 @@ const HostGroupHeader = observer(({
       />
       {renderIcon()}
       <span className={'text-xs font-medium md-text truncate flex-1'}>{hostName}</span>
-      {hostId && (
-        <button
-          className={
-            'p-0.5 rounded text-secondary hover-bg transition-colors opacity-0 ' +
-            'group-hover/host:opacity-100 ' +
-            (isSyncing ? '!opacity-100' : '')
-          }
-          onClick={handleResync}
-          title={t('sshHost.resyncHost')}
-        >
-          <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-        </button>
-      )}
+      <button
+        className={
+          'p-0.5 rounded text-secondary hover-bg transition-colors opacity-0 ' +
+          'group-hover/host:opacity-100'
+        }
+        onClick={handleManageProjects}
+        title={t('claudeCode.manageProjects')}
+      >
+        <FolderCog size={12} />
+      </button>
       <span className={'text-[10px] text-secondary'}>{projectCount}</span>
     </div>
   )
@@ -584,7 +580,8 @@ const ProjectItem = observer(({
     }
   }, [expanded, project.id, hostId, store])
 
-  const displayName = project.path.split(/[/\\]/).filter(Boolean).pop() || project.path
+  const config = store.claudeCode.getProjectConfig(project.id)
+  const displayName = config.displayName || project.path.split(/[/\\]/).filter(Boolean).pop() || project.path
 
   useEffect(() => {
     if (isActive && viewMode === 'files' && store.claudeCode.state.fileTree.length === 0) {

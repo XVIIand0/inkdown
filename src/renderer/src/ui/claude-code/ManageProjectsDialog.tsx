@@ -1,12 +1,12 @@
 import { observer } from 'mobx-react-lite'
 import { useStore } from '@/store/store'
 import { useTranslation } from 'react-i18next'
-import { Modal, Button, Checkbox, Spin, Select } from 'antd'
-import { Folder, Terminal, AlertTriangle } from 'lucide-react'
+import { Modal, Button, Checkbox, Spin, Select, Input } from 'antd'
+import { Folder, Terminal, AlertTriangle, Server } from 'lucide-react'
 
 const ipcRenderer = window.electron.ipcRenderer
 
-export const ClaudeCodeImportDialog = observer(() => {
+export const ManageProjectsDialog = observer(() => {
   const store = useStore()
   const { t } = useTranslation()
   const dialog = store.claudeCode.dialog
@@ -14,38 +14,43 @@ export const ClaudeCodeImportDialog = observer(() => {
   const allProjects = dialog.allProjects
   const selectedIds = dialog.selectedIds
   const allSelected = allProjects.length > 0 && selectedIds.length === allProjects.length
+  const hostId = dialog.manageHostId
+  const hostName = dialog.manageHostName
+  const isRemote = hostId !== null
 
   const handlePathChange = (project: IClaudeProject, newPath: string) => {
     project.path = newPath
     ipcRenderer.invoke('claude-code:resolveProjectPath', project.id, newPath)
   }
 
+  const TitleIcon = isRemote ? Server : Terminal
+
   return (
     <Modal
       open={dialog.showImportDialog}
       title={
         <div className={'flex items-center gap-2'}>
-          <Terminal className={'w-4 h-4 text-blue-500'} />
-          <span>{t('claudeCode.importTitle')}</span>
+          <TitleIcon className={'w-4 h-4 text-blue-500'} />
+          <span>{t('claudeCode.manageProjects')}</span>
+          <span className={'text-xs text-secondary font-normal'}>— {hostName}</span>
         </div>
       }
-      onCancel={() => store.claudeCode.closeImportDialog()}
+      onCancel={() => store.claudeCode.closeManageDialog()}
       footer={
         <div className={'flex justify-end gap-2'}>
-          <Button onClick={() => store.claudeCode.closeImportDialog()}>
+          <Button onClick={() => store.claudeCode.closeManageDialog()}>
             {t('cancel')}
           </Button>
           <Button
             type={'primary'}
-            disabled={selectedIds.length === 0}
-            onClick={() => store.claudeCode.confirmImport()}
+            onClick={() => store.claudeCode.confirmManageProjects()}
           >
-            {t('claudeCode.importBtn')}
+            {t('claudeCode.manageProjectsSave')}
           </Button>
         </div>
       }
-      width={520}
-      styles={{ body: { maxHeight: 400, overflowY: 'auto' } }}
+      width={560}
+      styles={{ body: { maxHeight: 450, overflowY: 'auto' } }}
       zIndex={2200}
     >
       {dialog.scanning ? (
@@ -54,13 +59,13 @@ export const ClaudeCodeImportDialog = observer(() => {
         </div>
       ) : allProjects.length === 0 ? (
         <div className={'text-center py-8 text-secondary'}>
-          <Terminal className={'w-10 h-10 mx-auto mb-3 opacity-30'} />
-          <p>{t('claudeCode.importNone')}</p>
+          <TitleIcon className={'w-10 h-10 mx-auto mb-3 opacity-30'} />
+          <p>{isRemote ? t('sshHost.remoteImportNone') : t('claudeCode.importNone')}</p>
         </div>
       ) : (
         <div>
           <p className={'text-sm text-secondary mb-3'}>
-            {t('claudeCode.importDesc', { count: allProjects.length })}
+            {t('claudeCode.manageProjectsDesc', { count: allProjects.length })}
           </p>
           <div className={'mb-2 pb-2 border-b border-theme'}>
             <Checkbox
@@ -74,9 +79,10 @@ export const ClaudeCodeImportDialog = observer(() => {
           <div className={'space-y-1'}>
             {allProjects.map((project: IClaudeProject) => {
               const checked = selectedIds.includes(project.id)
-              const displayName = project.path.split(/[/\\]/).filter(Boolean).pop() || project.path
+              const folderName = project.path.split(/[/\\]/).filter(Boolean).pop() || project.path
               const hasAmbiguousPaths =
-                project.candidatePaths && project.candidatePaths.length > 1
+                !isRemote && project.candidatePaths && project.candidatePaths.length > 1
+              const currentDisplayName = dialog.displayNames[project.id] || ''
               return (
                 <div
                   key={project.id}
@@ -88,7 +94,17 @@ export const ClaudeCodeImportDialog = observer(() => {
                   <Checkbox checked={checked} />
                   <Folder className={'w-4 h-4 text-amber-500 shrink-0'} />
                   <div className={'flex-1 min-w-0'}>
-                    <div className={'text-sm truncate'}>{displayName}</div>
+                    <div className={'flex items-center gap-2'}>
+                      <Input
+                        size={'small'}
+                        value={currentDisplayName}
+                        onChange={(e) => store.claudeCode.setDisplayName(project.id, e.target.value)}
+                        placeholder={folderName}
+                        onClick={(e) => e.stopPropagation()}
+                        className={'flex-1'}
+                        style={{ fontSize: 12 }}
+                      />
+                    </div>
                     {hasAmbiguousPaths ? (
                       <div
                         className={'flex items-center gap-1 mt-0.5'}
@@ -109,14 +125,16 @@ export const ClaudeCodeImportDialog = observer(() => {
                         />
                       </div>
                     ) : (
-                      <div className={'text-xs text-secondary truncate'}>
+                      <div className={'text-xs text-secondary truncate mt-0.5'}>
                         {project.path}
                       </div>
                     )}
                   </div>
-                  <span className={'text-xs text-secondary shrink-0'}>
-                    {t('claudeCode.messageCount', { count: project.sessionCount })}
-                  </span>
+                  {project.sessionCount > 0 && (
+                    <span className={'text-xs text-secondary shrink-0'}>
+                      {t('claudeCode.messageCount', { count: project.sessionCount })}
+                    </span>
+                  )}
                 </div>
               )
             })}

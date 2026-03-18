@@ -37,7 +37,7 @@ const state = {
   searchLoading: false,
   sessionAliases: {} as Record<string, string>,
   pinnedSessionIds: [] as string[],
-  projectConfigs: {} as Record<string, { iconType: string; iconValue?: string; sort: number }>,
+  projectConfigs: {} as Record<string, { iconType: string; iconValue?: string; sort: number; displayName?: string }>,
   showFileFinder: false,
   recentFiles: [] as Array<{ rel: string; abs: string; projectId: string; timestamp: number }>
 }
@@ -46,7 +46,10 @@ const dialogData = {
   showImportDialog: false,
   allProjects: [] as IClaudeProject[],
   selectedIds: [] as string[],
-  scanning: false
+  scanning: false,
+  manageHostId: null as string | null,
+  manageHostName: '' as string,
+  displayNames: {} as Record<string, string>
 }
 
 export class ClaudeCodeStore extends StructStore<typeof state> {
@@ -99,24 +102,51 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     }
   }
 
-  async scanAndShowImportDialog() {
-    this.setDialog({ scanning: true, showImportDialog: true, selectedIds: [] })
+  async openManageProjectsDialog(hostId: string | null) {
+    let hostName = 'Local'
+    if (hostId) {
+      const host = this.store.sshHost.state.hosts.find((h: ISshHost) => h.id === hostId)
+      hostName = host?.name || host?.hostname || hostId
+    }
+    this.setDialog({
+      scanning: true,
+      showImportDialog: true,
+      selectedIds: [],
+      manageHostId: hostId,
+      manageHostName: hostName,
+      displayNames: {}
+    })
     try {
-      const all: IClaudeProject[] = await ipcRenderer.invoke('claude-code:getProjects')
+      let all: IClaudeProject[]
+      if (hostId) {
+        all = await ipcRenderer.invoke('ssh-host:getRemoteProjects', hostId)
+      } else {
+        all = await ipcRenderer.invoke('claude-code:getProjects')
+      }
       const imported = this.store.settings.state.claudeCodeImportedProjects || {}
-      const localIds =
+      const key = hostId || 'local'
+      const existingIds =
         Array.isArray(imported)
-          ? imported
+          ? (hostId ? [] : imported)
           : typeof imported === 'object'
-            ? (imported as any).local || []
+            ? (imported as any)[key] || []
             : []
+      // Load existing display names from projectConfigs
+      const configs = this.state.projectConfigs
+      const displayNames: Record<string, string> = {}
+      for (const p of (all || [])) {
+        if (configs[p.id]?.displayName) {
+          displayNames[p.id] = configs[p.id].displayName!
+        }
+      }
       this.setDialog({
         allProjects: all || [],
         selectedIds:
-          localIds.length > 0
-            ? localIds.filter((id: string) => (all || []).some((p) => p.id === id))
+          existingIds.length > 0
+            ? existingIds.filter((id: string) => (all || []).some((p) => p.id === id))
             : (all || []).map((p) => p.id),
-        scanning: false
+        scanning: false,
+        displayNames
       })
     } catch (e) {
       console.error('Failed to scan projects', e)
@@ -124,18 +154,38 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     }
   }
 
-  async confirmImport() {
+  async confirmManageProjects() {
+    const hostId = this.dialog.manageHostId
     const ids = [...this.dialog.selectedIds]
     const imported = this.store.settings.state.claudeCodeImportedProjects
     const obj =
       typeof imported === 'object' && !Array.isArray(imported) ? { ...imported } : {}
-    obj.local = ids
+    const key = hostId || 'local'
+    obj[key] = ids
     await this.store.settings.setSetting('claudeCodeImportedProjects', obj)
+    // Save display names
+    const displayNames = this.dialog.displayNames
+    for (const [projectId, name] of Object.entries(displayNames)) {
+      await ipcRenderer.invoke('claude-code:setProjectConfig', {
+        projectId,
+        hostId,
+        displayName: name
+      })
+      runInAction(() => {
+        const existing = this.state.projectConfigs[projectId] || { iconType: 'default', sort: 0 }
+        this.state.projectConfigs[projectId] = { ...existing, displayName: name || undefined }
+      })
+    }
     this.setDialog({ showImportDialog: false })
+    // Reload configs then projects
+    try {
+      const configs = await ipcRenderer.invoke('claude-code:getProjectConfigs')
+      this.setState({ projectConfigs: configs || {} })
+    } catch {}
     await this.loadProjects()
   }
 
-  closeImportDialog() {
+  closeManageDialog() {
     this.setDialog({ showImportDialog: false })
   }
 
@@ -160,6 +210,12 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     })
   }
 
+  setDisplayName(projectId: string, name: string) {
+    this.setDialog((d) => {
+      d.displayNames[projectId] = name
+    })
+  }
+
   async enterClaudeCodeMode() {
     await this.store.settings.setSetting('claudeCodeMode', true)
     const imported = this.store.settings.state.claudeCodeImportedProjects
@@ -171,7 +227,7 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
       hasProjects = localIds.length > 0
     }
     if (!hasProjects) {
-      await this.scanAndShowImportDialog()
+      await this.openManageProjectsDialog(null)
     } else {
       await this.loadProjects()
     }
@@ -376,7 +432,7 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
 
   async setProjectConfig(
     projectId: string,
-    updates: { iconType?: string; iconValue?: string; sort?: number }
+    updates: { iconType?: string; iconValue?: string; sort?: number; displayName?: string }
   ) {
     const hostId = this.state.activeHostId || null
     await ipcRenderer.invoke('claude-code:setProjectConfig', {

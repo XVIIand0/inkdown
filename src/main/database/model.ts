@@ -221,6 +221,14 @@ export const initModel = async () => {
     }
   })
 
+  await knex.schema.hasColumn('project_config', 'displayName').then((exists) => {
+    if (!exists) {
+      return knex.schema.alterTable('project_config', (t) => {
+        t.text('displayName').nullable()
+      })
+    }
+  })
+
   await knex.schema.hasTable('session_pin').then((exists) => {
     if (!exists) {
       return knex.schema.createTable('session_pin', (t) => {

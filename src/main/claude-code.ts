@@ -492,8 +492,8 @@ ipcMain.handle(
   'claude-code:getProjectConfigs',
   async () => {
     const rows = await knex('project_config')
-      .select('id', 'iconType', 'iconValue', 'sort')
-    const map: Record<string, { iconType: string; iconValue?: string; sort: number }> = {}
+      .select('id', 'iconType', 'iconValue', 'sort', 'displayName')
+    const map: Record<string, { iconType: string; iconValue?: string; sort: number; displayName?: string }> = {}
     for (const row of rows) {
       // Extract projectId from composite key (hostId|projectId)
       const pipeIdx = row.id.indexOf('|')
@@ -501,7 +501,8 @@ ipcMain.handle(
       map[projectId] = {
         iconType: row.iconType || 'default',
         iconValue: row.iconValue || undefined,
-        sort: row.sort ?? 0
+        sort: row.sort ?? 0,
+        displayName: row.displayName || undefined
       }
     }
     return map
@@ -518,6 +519,7 @@ ipcMain.handle(
       iconType?: string
       iconValue?: string
       sort?: number
+      displayName?: string
     }
   ) => {
     const id = buildProjectConfigId(options.hostId || null, options.projectId)
@@ -526,6 +528,7 @@ ipcMain.handle(
     if (options.iconType !== undefined) updates.iconType = options.iconType
     if (options.iconValue !== undefined) updates.iconValue = options.iconValue
     if (options.sort !== undefined) updates.sort = options.sort
+    if (options.displayName !== undefined) updates.displayName = options.displayName || null
     if (existing) {
       await knex('project_config').where('id', id).update(updates)
     } else {
@@ -534,6 +537,7 @@ ipcMain.handle(
         iconType: options.iconType || 'default',
         iconValue: options.iconValue || null,
         sort: options.sort ?? 0,
+        displayName: options.displayName || null,
         updated: Date.now()
       })
     }

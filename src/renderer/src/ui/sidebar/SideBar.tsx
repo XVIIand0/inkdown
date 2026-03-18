@@ -2,7 +2,7 @@ import { useStore } from '@/store/store'
 import { useCallback, useEffect } from 'react'
 import { observer } from 'mobx-react-lite'
 import { Tree } from './tree/Tree'
-import { Terminal, PenLine, RefreshCw, Settings2 } from 'lucide-react'
+import { Terminal, PenLine, Settings2 } from 'lucide-react'
 import { os } from '@/utils/common'
 import { ClaudeCodeSidebar } from '../claude-code/Sidebar'
 
@@ -73,15 +73,6 @@ export const SideBar = observer(() => {
             title="Settings"
           >
             <Settings2 className={'w-3.5 h-3.5'} />
-          </button>
-        )}
-        {claudeCodeMode && (
-          <button
-            className={'flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-secondary hover-bg'}
-            onClick={() => store.claudeCode.scanAndShowImportDialog()}
-            title="Re-scan projects"
-          >
-            <RefreshCw className={'w-3.5 h-3.5'} />
           </button>
         )}
         <button

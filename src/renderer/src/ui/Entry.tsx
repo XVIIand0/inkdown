@@ -13,9 +13,8 @@ import { ExportSpace } from './space/ExportSpace'
 import { ImportFolder } from './space/ImportFolder'
 import { SpaceFiles } from './space/Files'
 import { CenterArea } from './center/CenterArea'
-import { ClaudeCodeImportDialog } from './claude-code/ImportDialog'
+import { ManageProjectsDialog } from './claude-code/ManageProjectsDialog'
 import { SshHostDialog } from './claude-code/SshHostDialog'
-import { RemoteImportDialog } from './claude-code/RemoteImportDialog'
 import { FileFinder } from './claude-code/FileFinder'
 const Entry = observer(() => {
   const store = useStore()
@@ -52,9 +51,8 @@ const Entry = observer(() => {
       <ExportSpace />
       <ImportFolder />
       <SpaceFiles />
-      <ClaudeCodeImportDialog />
+      <ManageProjectsDialog />
       <SshHostDialog />
-      <RemoteImportDialog />
       <FileFinder />
     </div>
   )

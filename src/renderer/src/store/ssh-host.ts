@@ -167,23 +167,10 @@ export class SshHostStore extends StructStore<typeof state> {
     }
   }
 
-  // Resync all projects for a host: re-scan remote projects and auto-import new ones
+  // Resync a host: refresh session data for already-imported projects only
   async resyncHost(hostId: string) {
     this.setState({ testingHostId: hostId })
     try {
-      const projects: IClaudeProject[] = await ipcRenderer.invoke(
-        'ssh-host:getRemoteProjects',
-        hostId
-      )
-      const remoteIds = (projects || []).map((p) => p.id)
-      const imported = this.store.settings.state.claudeCodeImportedProjects || {}
-      const obj =
-        typeof imported === 'object' && !Array.isArray(imported)
-          ? { ...imported }
-          : { local: imported as any }
-      obj[hostId] = remoteIds
-      await this.store.settings.setSetting('claudeCodeImportedProjects', obj)
-
       // If currently viewing a project under this host, reload its sessions
       if (this.store.claudeCode.state.activeHostId === hostId) {
         const pid = this.store.claudeCode.state.activeProjectId
