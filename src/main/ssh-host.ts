@@ -44,14 +44,23 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   return env
 }
 
+function resolveActiveAddress(host: ISshHost): { hostname: string; port: number } {
+  if (host.addresses && host.addresses.length > 0 && host.activeAddressId) {
+    const addr = host.addresses.find((a) => a.id === host.activeAddressId)
+    if (addr) return { hostname: addr.hostname, port: addr.port }
+  }
+  return { hostname: host.hostname, port: host.port }
+}
+
 function buildSshArgs(host: ISshHost): string[] {
+  const { hostname, port } = resolveActiveAddress(host)
   const args: string[] = []
-  args.push('-p', String(host.port))
+  args.push('-p', String(port))
   if (host.authMethod === 'key' && host.identityFile) {
     args.push('-i', host.identityFile)
   }
   args.push('-o', 'StrictHostKeyChecking=accept-new')
-  args.push(`${host.username}@${host.hostname}`)
+  args.push(`${host.username}@${hostname}`)
   return args
 }
 
@@ -60,6 +69,64 @@ function sshExec(
   command: string,
   timeout: number = 30000
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  const needsPassword = host.authMethod === 'password' && host.password
+
+  if (needsPassword) {
+    // Use PTY to handle password prompt for non-interactive commands
+    return new Promise((resolve) => {
+      const args = buildSshArgs(host)
+      args.push('--', command)
+
+      let output = ''
+      let passwordSent = false
+      let resolved = false
+      const doResolve = (r: { stdout: string; stderr: string; code: number | null }) => {
+        if (resolved) return
+        resolved = true
+        resolve(r)
+      }
+
+      let ptyProcess: any
+      try {
+        ptyProcess = getPty().spawn(getSshPath(), args, {
+          name: 'xterm-256color',
+          cols: 200,
+          rows: 50,
+          cwd: homedir(),
+          env: { ...getCleanEnv() } as Record<string, string>
+        })
+      } catch (e: any) {
+        doResolve({ stdout: '', stderr: e?.message || 'Failed to spawn PTY', code: 1 })
+        return
+      }
+
+      const timer = setTimeout(() => {
+        try { ptyProcess.kill() } catch {}
+        doResolve({ stdout: output, stderr: 'Timed out', code: 1 })
+      }, timeout)
+
+      ptyProcess.onData((data: string) => {
+        const clean = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+        if (!passwordSent && /[Pp]assword[:\s]/i.test(clean)) {
+          passwordSent = true
+          ptyProcess.write(host.password + '\r')
+          return
+        }
+        // Only collect output after password has been sent (skip the prompt itself)
+        if (passwordSent || host.authMethod !== 'password') {
+          output += data
+        }
+      })
+
+      ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+        clearTimeout(timer)
+        // Strip ANSI codes from collected output
+        const stdout = output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '')
+        doResolve({ stdout, stderr: '', code: exitCode })
+      })
+    })
+  }
+
   return new Promise((resolve) => {
     const args = buildSshArgs(host)
     args.push('--', command)
@@ -67,9 +134,6 @@ function sshExec(
     let stdout = ''
     let stderr = ''
 
-    // execFile passes arguments directly to the executable without shell
-    // interpretation. For complex scripts, we base64-encode the command and
-    // have the remote decode+execute it, avoiding any argument mangling.
     execFile(getSshPath(), args, {
       timeout,
       maxBuffer: 50 * 1024 * 1024, // 50MB for large session files
@@ -94,21 +158,146 @@ function decodeProjectDirName(dirName: string): string {
   return drive + ':\\' + rest.replace(/-/g, '\\')
 }
 
+function deserializeHost(host: any): ISshHost {
+  if (host.addresses && typeof host.addresses === 'string') {
+    try {
+      host.addresses = JSON.parse(host.addresses)
+    } catch {
+      host.addresses = null
+    }
+  }
+  return host as ISshHost
+}
+
 async function getHostById(id: string): Promise<ISshHost> {
   const host = await knex('ssh_host').where('id', id).first()
   if (!host) throw new Error(`SSH host not found: ${id}`)
-  return host as ISshHost
+  return deserializeHost(host)
+}
+
+// Auto-send password on first prompt for password-auth hosts.
+// Returns the wrapped onData callback; caller should use it instead of
+// ptyProcess.onData directly when they also need to inspect output.
+function attachPasswordSender(
+  ptyProcess: any,
+  host: ISshHost,
+  onData?: (data: string) => void
+) {
+  if (host.authMethod !== 'password' || !host.password) {
+    if (onData) ptyProcess.onData(onData)
+    return
+  }
+  let passwordSent = false
+  let buffer = ''
+  ptyProcess.onData((data: string) => {
+    if (!passwordSent) {
+      buffer += data
+      const clean = buffer.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+      if (/[Pp]assword[:\s]/i.test(clean)) {
+        passwordSent = true
+        ptyProcess.write(host.password + '\r')
+        buffer = ''
+      }
+    }
+    if (onData) onData(data)
+  })
 }
 
 // PTY terminal processes for SSH sessions
 const sshTerminalProcesses = new Map<string, any>()
 
-ipcMain.handle('ssh-host:test', async (_, id: string) => {
-  const host = await getHostById(id)
+function testSshConnection(host: ISshHost): Promise<ISshTestResult> {
   const start = Date.now()
+  const needsPassword = host.authMethod === 'password' && host.password
+
+  if (needsPassword) {
+    // Use PTY so we can respond to password prompts
+    return new Promise<ISshTestResult>((resolve) => {
+      const args = buildSshArgs(host)
+      const userHostIdx = args.length - 1
+      const userHost = args[userHostIdx]
+      const testArgs = [
+        '-o', 'ConnectTimeout=5',
+        '-o', 'NumberOfPasswordPrompts=1',
+        ...args.slice(0, userHostIdx),
+        userHost,
+        '--', 'echo', '__SSH_TEST_OK__'
+      ]
+
+      let output = ''
+      let passwordSent = false
+      let resolved = false
+      const doResolve = (r: ISshTestResult) => {
+        if (resolved) return
+        resolved = true
+        resolve(r)
+      }
+
+      let ptyProcess: any
+      try {
+        ptyProcess = getPty().spawn(getSshPath(), testArgs, {
+          name: 'xterm-256color',
+          cols: 80,
+          rows: 24,
+          cwd: homedir(),
+          env: { ...getCleanEnv() } as Record<string, string>
+        })
+      } catch (e: any) {
+        doResolve({ success: false, error: e?.message || 'Failed to spawn PTY' })
+        return
+      }
+
+      const timer = setTimeout(() => {
+        try { ptyProcess.kill() } catch {}
+        doResolve({ success: false, error: 'Connection timed out' })
+      }, 15000)
+
+      ptyProcess.onData((data: string) => {
+        output += data
+        const clean = output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+
+        // Detect password prompt and send password
+        if (!passwordSent && /[Pp]assword[:\s]/i.test(clean)) {
+          passwordSent = true
+          ptyProcess.write(host.password + '\r')
+        }
+
+        // Detect success
+        if (clean.includes('__SSH_TEST_OK__')) {
+          clearTimeout(timer)
+          try { ptyProcess.kill() } catch {}
+          doResolve({ success: true, latencyMs: Date.now() - start })
+        }
+
+        // Detect auth failure
+        if (/[Pp]ermission denied|[Aa]uthentication fail/i.test(clean) && passwordSent) {
+          clearTimeout(timer)
+          try { ptyProcess.kill() } catch {}
+          doResolve({ success: false, error: 'Permission denied', latencyMs: Date.now() - start })
+        }
+      })
+
+      ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+        clearTimeout(timer)
+        if (exitCode === 0) {
+          doResolve({ success: true, latencyMs: Date.now() - start })
+        } else {
+          const clean = output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+          doResolve({
+            success: false,
+            error: clean.includes('Permission denied')
+              ? 'Permission denied'
+              : `SSH exited with code ${exitCode}`,
+            latencyMs: Date.now() - start
+          })
+        }
+      })
+    })
+  }
+
+  // Key / agent auth: use BatchMode (no interactive prompts needed)
   return new Promise<ISshTestResult>((resolve) => {
     const args = buildSshArgs(host)
-    // Insert batch mode and connect timeout before user@host
     const userHostIdx = args.length - 1
     const userHost = args[userHostIdx]
     const testArgs = [
@@ -143,6 +332,11 @@ ipcMain.handle('ssh-host:test', async (_, id: string) => {
       }
     })
   })
+}
+
+ipcMain.handle('ssh-host:test', async (_, id: string) => {
+  const host = await getHostById(id)
+  return testSshConnection(host)
 })
 
 ipcMain.handle('ssh-host:testConnection', async (_, hostData: Partial<ISshHost>) => {
@@ -159,44 +353,8 @@ ipcMain.handle('ssh-host:testConnection', async (_, hostData: Partial<ISshHost>)
     sort: 0,
     created: 0,
     updated: 0
-  }
-  const start = Date.now()
-  return new Promise<ISshTestResult>((resolve) => {
-    const args = buildSshArgs(host)
-    const userHostIdx = args.length - 1
-    const userHost = args[userHostIdx]
-    const testArgs = [
-      '-o', 'BatchMode=yes',
-      '-o', 'ConnectTimeout=5',
-      ...args.slice(0, userHostIdx),
-      userHost,
-      '--', 'exit'
-    ]
-
-    const child = spawn(getSshPath(), testArgs, {
-      timeout: 10000,
-      env: getCleanEnv()
-    })
-
-    let stderr = ''
-
-    child.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString()
-    })
-
-    child.on('error', (err) => {
-      resolve({ success: false, error: err.message })
-    })
-
-    child.on('close', (code) => {
-      const latencyMs = Date.now() - start
-      if (code === 0) {
-        resolve({ success: true, latencyMs })
-      } else {
-        resolve({ success: false, error: stderr || `SSH exited with code ${code}`, latencyMs })
-      }
-    })
-  })
+  } as ISshHost
+  return testSshConnection(host)
 })
 
 ipcMain.handle('ssh-host:getRemoteProjects', async (_, hostId: string) => {
@@ -384,7 +542,7 @@ ipcMain.handle(
 
     sshTerminalProcesses.set(terminalId, ptyProcess)
 
-    ptyProcess.onData((data: string) => {
+    attachPasswordSender(ptyProcess, host, (data: string) => {
       sendToRenderer('ssh-host:terminal-data', {
         terminalId,
         data
@@ -496,7 +654,7 @@ ipcMain.handle(
       /waiting for.*permission/i
     ]
 
-    ptyProcess.onData((data: string) => {
+    attachPasswordSender(ptyProcess, host, (data: string) => {
       // Send on claude-code channels with sessionId so LiveView can receive
       sendToRenderer('claude-code:terminal-data', {
         sessionId: options.sessionId,
