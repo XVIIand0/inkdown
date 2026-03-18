@@ -349,6 +349,14 @@ export class KeyboardStore {
         custom: undefined,
         scene: 'global'
       }
+    ],
+    [
+      'reopenClosedTab',
+      {
+        system: 'mod+shift+t',
+        custom: undefined,
+        scene: 'global'
+      }
     ]
   ])
   get currentTab() {
@@ -444,7 +452,11 @@ export class KeyboardStore {
         this.currentTab?.keyboard.pasteMarkdownCode()
         break
       case 'newTab':
-        this.currentTab?.keyboard.newTab()
+        if (this.store.settings.state.claudeCodeMode) {
+          this.openTerminalForActiveProject()
+        } else {
+          this.currentTab?.keyboard.newTab()
+        }
         break
       case 'closeCurrentTab':
         if (this.store.note.state.tabs.length > 1) {
@@ -521,7 +533,16 @@ export class KeyboardStore {
         this.store.settings.toggleChatBot()
         break
       case 'newDoc':
-        this.store.menu.createDoc(this.store.note.state.opendDoc?.parentId || 'root')
+        if (this.store.settings.state.claudeCodeMode) {
+          // Ensure active project matches the focused tab's project
+          const proj = this.resolveActiveProject()
+          if (proj) {
+            this.store.claudeCode.selectProject(proj.id, proj.hostId || null)
+            this.store.claudeCode.startNewConversation()
+          }
+        } else {
+          this.store.menu.createDoc(this.store.note.state.opendDoc?.parentId || 'root')
+        }
         break
       case 'quickOpenNote':
         this.store.note.setState({ showQuickOpen: true })
@@ -536,6 +557,33 @@ export class KeyboardStore {
           this.store.claudeCode.openFileFinder()
         }
         break
+      case 'reopenClosedTab':
+        if (this.store.settings.state.claudeCodeMode) {
+          this.store.centerTabs.reopenLastClosedTab()
+        }
+        break
+    }
+  }
+
+  private resolveActiveProject(): { path: string; name: string; id: string; hostId?: string } | null {
+    // 1. Try active tab's project
+    const tab = this.store.centerTabs.activeTab
+    const projectId = tab?.projectId || this.store.claudeCode.state.activeProjectId
+    if (!projectId) return null
+    for (const group of this.store.claudeCode.groupedProjects) {
+      const found = group.projects.find((p) => p.id === projectId)
+      if (found) {
+        const name = found.path.split(/[/\\]/).filter(Boolean).pop() || found.path
+        return { path: found.path, name, id: found.id, hostId: group.hostId || undefined }
+      }
+    }
+    return null
+  }
+
+  private openTerminalForActiveProject() {
+    const project = this.resolveActiveProject()
+    if (project) {
+      this.store.centerTabs.openLocalTerminalTab(project.path, project.name)
     }
   }
 }
