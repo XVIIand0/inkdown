@@ -1,3 +1,10 @@
+interface ISshHostAddress {
+  id: string
+  label?: string
+  hostname: string
+  port: number
+}
+
 interface ISshHost {
   id: string
   name: string
@@ -12,6 +19,9 @@ interface ISshHost {
   sort: number
   created: number
   updated: number
+  addresses?: ISshHostAddress[]
+  activeAddressId?: string
+  borderColor?: string
 }
 
 interface ISshTestResult {

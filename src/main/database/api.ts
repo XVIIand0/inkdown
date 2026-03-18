@@ -641,25 +641,59 @@ ipcMain.handle('mind-note:getScopes', async () => {
 })
 
 // SSH Host handlers
+function deserializeSshHost(host: any) {
+  if (host.addresses && typeof host.addresses === 'string') {
+    try {
+      host.addresses = JSON.parse(host.addresses)
+    } catch {
+      host.addresses = null
+    }
+  }
+  return host
+}
+
 ipcMain.handle('ssh-host:getAll', async () => {
-  return knex.select('*').from('ssh_host').orderBy('sort', 'asc').orderBy('name', 'asc')
+  const hosts = await knex.select('*').from('ssh_host').orderBy('sort', 'asc').orderBy('name', 'asc')
+  return hosts.map(deserializeSshHost)
 })
 
 ipcMain.handle('ssh-host:create', async (_, host: Omit<ISshHost, 'id' | 'created' | 'updated'>) => {
   const now = Date.now()
-  const record = {
+  const record: any = {
     ...host,
     id: crypto.randomUUID(),
     created: now,
     updated: now
   }
+  if (record.addresses && typeof record.addresses !== 'string') {
+    record.addresses = JSON.stringify(record.addresses)
+  }
   await knex('ssh_host').insert(record)
-  return record
+  return deserializeSshHost({ ...record })
 })
 
 ipcMain.handle('ssh-host:update', async (_, id: string, data: Partial<ISshHost>) => {
-  return knex('ssh_host').where('id', id).update({
-    ...data,
+  const updateData: any = { ...data, updated: Date.now() }
+  if (updateData.addresses && typeof updateData.addresses !== 'string') {
+    updateData.addresses = JSON.stringify(updateData.addresses)
+  }
+  return knex('ssh_host').where('id', id).update(updateData)
+})
+
+ipcMain.handle('ssh-host:setActiveAddress', async (_, hostId: string, addressId: string) => {
+  const host = await knex('ssh_host').where('id', hostId).first()
+  if (!host) return
+  let addresses = host.addresses
+  if (typeof addresses === 'string') {
+    try { addresses = JSON.parse(addresses) } catch { return }
+  }
+  if (!Array.isArray(addresses)) return
+  const addr = addresses.find((a: any) => a.id === addressId)
+  if (!addr) return
+  await knex('ssh_host').where('id', hostId).update({
+    activeAddressId: addressId,
+    hostname: addr.hostname,
+    port: addr.port,
     updated: Date.now()
   })
 })

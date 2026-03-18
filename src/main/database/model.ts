@@ -199,6 +199,23 @@ export const initModel = async () => {
     }
   })
 
+  await knex.schema.hasColumn('ssh_host', 'addresses').then((exists) => {
+    if (!exists) {
+      return knex.schema.alterTable('ssh_host', (t) => {
+        t.text('addresses').nullable()
+        t.text('activeAddressId').nullable()
+      })
+    }
+  })
+
+  await knex.schema.hasColumn('ssh_host', 'borderColor').then((exists) => {
+    if (!exists) {
+      return knex.schema.alterTable('ssh_host', (t) => {
+        t.text('borderColor').nullable()
+      })
+    }
+  })
+
   await knex.schema.hasTable('session_alias').then((exists) => {
     if (!exists) {
       return knex.schema.createTable('session_alias', (t) => {
