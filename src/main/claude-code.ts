@@ -1,8 +1,9 @@
 import { ipcMain } from 'electron'
 import { readdirSync, readFileSync, statSync, existsSync, createReadStream } from 'fs'
-import { join } from 'path'
+import { join, relative } from 'path'
 import { homedir } from 'os'
 import { createInterface } from 'readline'
+import ignore, { Ignore } from 'ignore'
 import {
   parseJsonlLine,
   extractUserText,
@@ -27,6 +28,32 @@ const IGNORED_DIRS = new Set([
   'coverage',
   '__pycache__'
 ])
+
+// Cache for gitignore instances per project path
+const gitignoreCache = new Map<string, { ig: Ignore; time: number }>()
+
+function loadGitignore(projectPath: string): Ignore {
+  const cached = gitignoreCache.get(projectPath)
+  if (cached && Date.now() - cached.time < 30000) return cached.ig
+
+  const ig = ignore()
+  ig.add('.git')
+  const gitignorePath = join(projectPath, '.gitignore')
+  if (existsSync(gitignorePath)) {
+    try {
+      const content = readFileSync(gitignorePath, 'utf-8')
+      ig.add(content)
+    } catch {
+      // Fall back to IGNORED_DIRS if .gitignore can't be read
+      for (const dir of IGNORED_DIRS) ig.add(dir)
+    }
+  } else {
+    // No .gitignore — use hardcoded defaults
+    for (const dir of IGNORED_DIRS) ig.add(dir)
+  }
+  gitignoreCache.set(projectPath, { ig, time: Date.now() })
+  return ig
+}
 
 // Cache of user-confirmed path resolutions: dirName → confirmed path
 const resolvedPathCache = new Map<string, string>()
@@ -194,6 +221,7 @@ const BINARY_EXTENSIONS = new Set([
 ipcMain.handle('claude-code:getProjectFilesFlat', async (_, projectPath: string) => {
   if (!existsSync(projectPath)) return []
 
+  const ig = loadGitignore(projectPath)
   const results: Array<{ rel: string; abs: string }> = []
   const MAX_FILES = 10000
   const MAX_DEPTH = 10
@@ -204,14 +232,14 @@ ipcMain.handle('claude-code:getProjectFilesFlat', async (_, projectPath: string)
       const entries = readdirSync(dirPath, { withFileTypes: true })
       for (const entry of entries) {
         if (results.length >= MAX_FILES) break
-        if (entry.name.startsWith('.') || IGNORED_DIRS.has(entry.name)) continue
         const fullPath = join(dirPath, entry.name)
+        const rel = relative(projectPath, fullPath).replace(/\\/g, '/')
+        if (ig.ignores(entry.isDirectory() ? rel + '/' : rel)) continue
         if (entry.isDirectory()) {
           walk(fullPath, depth + 1)
         } else {
           const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop()!.toLowerCase() : ''
           if (BINARY_EXTENSIONS.has(ext)) continue
-          const rel = fullPath.substring(projectPath.length + 1).replace(/\\/g, '/')
           results.push({ rel, abs: fullPath })
         }
       }
@@ -227,6 +255,8 @@ ipcMain.handle('claude-code:getProjectFilesFlat', async (_, projectPath: string)
 ipcMain.handle('claude-code:getProjectFiles', async (_, projectPath: string) => {
   if (!existsSync(projectPath)) return []
 
+  const ig = loadGitignore(projectPath)
+
   function readDir(
     dirPath: string,
     depth: number
@@ -235,7 +265,11 @@ ipcMain.handle('claude-code:getProjectFiles', async (_, projectPath: string) => 
     try {
       const entries = readdirSync(dirPath, { withFileTypes: true })
       return entries
-        .filter((e) => !IGNORED_DIRS.has(e.name) && !e.name.startsWith('.'))
+        .filter((e) => {
+          const fullPath = join(dirPath, e.name)
+          const rel = relative(projectPath, fullPath).replace(/\\/g, '/')
+          return !ig.ignores(e.isDirectory() ? rel + '/' : rel)
+        })
         .sort((a, b) => {
           if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
           return a.name.localeCompare(b.name)
@@ -264,6 +298,35 @@ ipcMain.handle('claude-code:getProjectFiles', async (_, projectPath: string) => 
   }
 
   return readDir(projectPath, 0)
+})
+
+ipcMain.handle('claude-code:listDirectory', async (_, dirPath: string) => {
+  // Resolve ~ to homedir
+  const resolved = dirPath.startsWith('~') ? join(homedir(), dirPath.slice(1)) : dirPath
+  if (!existsSync(resolved)) return []
+  try {
+    const stat = statSync(resolved)
+    if (!stat.isDirectory()) return []
+    const entries = readdirSync(resolved, { withFileTypes: true })
+    const results: Array<{ name: string; path: string; isDirectory: boolean }> = []
+    for (const entry of entries) {
+      if (entry.name === '.git') continue
+      const fullPath = join(resolved, entry.name)
+      results.push({
+        name: entry.name,
+        path: fullPath,
+        isDirectory: entry.isDirectory()
+      })
+      if (results.length >= 500) break
+    }
+    results.sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    return results
+  } catch {
+    return []
+  }
 })
 
 function extractTextContent(parsed: Record<string, any>): string {

@@ -474,7 +474,7 @@
     "borderColor": "边框颜色"
   },
   "fileFinder": {
-    "placeholder": "按名称搜索文件...",
+    "placeholder": "按名称搜索文件（输入 / 或 ~ 浏览路径）...",
     "noProject": "请先选择一个项目以搜索文件",
     "recentFiles": "最近的文件",
     "noResults": "没有匹配的文件"

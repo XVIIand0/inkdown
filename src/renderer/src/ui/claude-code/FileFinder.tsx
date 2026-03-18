@@ -2,13 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { useStore } from '@/store/store'
 import { useTranslation } from 'react-i18next'
-import { Search, X, Clock, FileCode } from 'lucide-react'
+import { Search, X, Clock, FileCode, Folder } from 'lucide-react'
 
 const ipcRenderer = window.electron.ipcRenderer
 
 interface FileEntry {
   rel: string
   abs: string
+}
+
+interface DirEntry {
+  name: string
+  path: string
+  isDirectory: boolean
 }
 
 // File list cache per project
@@ -42,6 +48,20 @@ function fuzzyMatch(query: string, candidate: string): { match: boolean; score: 
   return { match: qi === q.length, score }
 }
 
+function isAbsolutePathQuery(query: string): boolean {
+  return query.startsWith('/') || query.startsWith('~')
+}
+
+function splitPathQuery(query: string): { dirPart: string; filterPart: string } {
+  const lastSlash = query.lastIndexOf('/')
+  if (lastSlash === -1) return { dirPart: query, filterPart: '' }
+  // For queries like "/tmp/fo", dirPart="/tmp", filterPart="fo"
+  // For queries like "/tmp/", dirPart="/tmp/", filterPart=""
+  const dirPart = query.substring(0, lastSlash + 1)
+  const filterPart = query.substring(lastSlash + 1)
+  return { dirPart, filterPart }
+}
+
 export const FileFinder = observer(() => {
   const store = useStore()
   const { t } = useTranslation()
@@ -52,6 +72,13 @@ export const FileFinder = observer(() => {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [files, setFiles] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(false)
+
+  // Absolute path browsing state
+  const [dirEntries, setDirEntries] = useState<DirEntry[]>([])
+  const [dirLoading, setDirLoading] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const isAbsMode = isAbsolutePathQuery(query)
 
   // Determine active project
   const activeTab = store.centerTabs.activeTab
@@ -68,14 +95,11 @@ export const FileFinder = observer(() => {
     return null
   }, [projectId, store.claudeCode.groupedProjects])
 
-  // Load files when opened
+  // Load files when opened (invalidate cache each time)
   useEffect(() => {
     if (!show || !projectPath || hostId) return
-    const cached = fileCache.get(projectPath)
-    if (cached) {
-      setFiles(cached)
-      return
-    }
+    // Invalidate cache to pick up gitignore/dotfile changes
+    fileCache.delete(projectPath)
     setLoading(true)
     ipcRenderer
       .invoke('claude-code:getProjectFilesFlat', projectPath)
@@ -92,14 +116,36 @@ export const FileFinder = observer(() => {
     if (show) {
       setQuery('')
       setSelectedIndex(0)
+      setDirEntries([])
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [show])
 
-  // Filtered results
-  const results = useMemo(() => {
+  // Fetch directory entries for absolute path mode (debounced)
+  useEffect(() => {
+    if (!isAbsMode) {
+      setDirEntries([])
+      return
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      const { dirPart } = splitPathQuery(query)
+      setDirLoading(true)
+      ipcRenderer
+        .invoke('claude-code:listDirectory', dirPart)
+        .then((result: DirEntry[]) => setDirEntries(result))
+        .catch(() => setDirEntries([]))
+        .finally(() => setDirLoading(false))
+    }, 200)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [query, isAbsMode])
+
+  // Filtered results for project file mode
+  const projectResults = useMemo(() => {
+    if (isAbsMode) return []
     if (!query.trim()) {
-      // Show recent files for current project
       return store.claudeCode.state.recentFiles
         .filter((f) => f.projectId === projectId)
         .map((f) => ({ rel: f.rel, abs: f.abs, isRecent: true }))
@@ -113,7 +159,18 @@ export const FileFinder = observer(() => {
       .sort((a, b) => b.score - a.score)
       .slice(0, 50)
     return scored
-  }, [query, files, projectId, store.claudeCode.state.recentFiles])
+  }, [query, files, projectId, store.claudeCode.state.recentFiles, isAbsMode])
+
+  // Filtered results for absolute path mode
+  const absResults = useMemo(() => {
+    if (!isAbsMode) return []
+    const { filterPart } = splitPathQuery(query)
+    if (!filterPart) return dirEntries
+    const lower = filterPart.toLowerCase()
+    return dirEntries.filter((e) => e.name.toLowerCase().includes(lower))
+  }, [isAbsMode, dirEntries, query])
+
+  const results = isAbsMode ? absResults : projectResults
 
   // Reset selection when results change
   useEffect(() => {
@@ -135,6 +192,24 @@ export const FileFinder = observer(() => {
     [store, projectId, hostId, close]
   )
 
+  const handleAbsSelect = useCallback(
+    (entry: DirEntry) => {
+      if (entry.isDirectory) {
+        // Drill into directory
+        setQuery(entry.path + '/')
+      } else {
+        // Open the file
+        const rel = entry.name
+        store.centerTabs.openCodeFileTab(entry.path, projectId || undefined, hostId || undefined)
+        if (projectId) {
+          store.claudeCode.addRecentFile({ rel, abs: entry.path, projectId })
+        }
+        close()
+      }
+    },
+    [store, projectId, hostId, close]
+  )
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -146,12 +221,17 @@ export const FileFinder = observer(() => {
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         setSelectedIndex((i) => Math.max(i - 1, 0))
-      } else if (e.key === 'Enter' && results[selectedIndex]) {
+      } else if (e.key === 'Enter' && results.length > 0) {
         e.preventDefault()
-        openFile(results[selectedIndex])
+        if (isAbsMode) {
+          handleAbsSelect(results[selectedIndex] as DirEntry)
+        } else {
+          const entry = results[selectedIndex] as { rel: string; abs: string }
+          if (entry) openFile(entry)
+        }
       }
     },
-    [close, results, selectedIndex, openFile]
+    [close, results, selectedIndex, openFile, isAbsMode, handleAbsSelect]
   )
 
   // Scroll selected into view
@@ -163,6 +243,8 @@ export const FileFinder = observer(() => {
   }, [selectedIndex])
 
   if (!show) return null
+
+  const isLoading = isAbsMode ? dirLoading : loading
 
   return (
     <div
@@ -198,69 +280,93 @@ export const FileFinder = observer(() => {
         </div>
 
         <div ref={listRef} className="max-h-[400px] overflow-y-auto py-1">
-          {!projectId && (
+          {!isAbsMode && !projectId && (
             <div className="px-4 py-8 text-center text-secondary text-sm">
               {t('fileFinder.noProject')}
             </div>
           )}
 
-          {projectId && hostId && (
+          {!isAbsMode && projectId && hostId && (
             <div className="px-4 py-8 text-center text-secondary text-sm">
               File finder is not available for remote projects
             </div>
           )}
 
-          {projectId && !hostId && loading && (
+          {isLoading && (
             <div className="px-4 py-8 text-center text-secondary text-sm">Loading...</div>
           )}
 
-          {projectId && !hostId && !loading && !query && results.length === 0 && (
+          {!isLoading && query && results.length === 0 && (
             <div className="px-4 py-8 text-center text-secondary text-sm">
               {t('fileFinder.noResults')}
             </div>
           )}
 
-          {projectId && !hostId && !loading && query && results.length === 0 && (
+          {!isAbsMode && !loading && !query && results.length === 0 && projectId && !hostId && (
             <div className="px-4 py-8 text-center text-secondary text-sm">
               {t('fileFinder.noResults')}
             </div>
           )}
 
-          {!query && results.length > 0 && (
+          {!isAbsMode && !query && results.length > 0 && (
             <div className="px-3 py-1 text-xs text-secondary">
               {t('fileFinder.recentFiles')}
             </div>
           )}
 
-          {results.map((entry, i) => (
-            <div
-              key={entry.abs}
-              className={
-                'flex items-center gap-2 px-3 py-1.5 cursor-default text-sm ' +
-                (i === selectedIndex ? 'active-bg md-text' : 'md-text hover-bg')
-              }
-              onClick={() => openFile(entry)}
-              onMouseEnter={() => setSelectedIndex(i)}
-            >
-              {(entry as any).isRecent ? (
-                <Clock size={14} className="text-secondary shrink-0" />
-              ) : (
-                <FileCode size={14} className="text-secondary shrink-0" />
-              )}
-              <span className="truncate flex-1">{entry.rel}</span>
-              {(entry as any).isRecent && (
-                <button
-                  className="p-0.5 rounded hover-bg text-secondary opacity-0 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    store.claudeCode.removeRecentFile(entry.abs)
-                  }}
+          {!isAbsMode &&
+            results.map((entry, i) => (
+              <div
+                key={(entry as any).abs}
+                className={
+                  'flex items-center gap-2 px-3 py-1.5 cursor-default text-sm ' +
+                  (i === selectedIndex ? 'active-bg md-text' : 'md-text hover-bg')
+                }
+                onClick={() => openFile(entry as { rel: string; abs: string })}
+                onMouseEnter={() => setSelectedIndex(i)}
+              >
+                {(entry as any).isRecent ? (
+                  <Clock size={14} className="text-secondary shrink-0" />
+                ) : (
+                  <FileCode size={14} className="text-secondary shrink-0" />
+                )}
+                <span className="truncate flex-1">{(entry as any).rel}</span>
+                {(entry as any).isRecent && (
+                  <button
+                    className="p-0.5 rounded hover-bg text-secondary opacity-0 group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      store.claudeCode.removeRecentFile((entry as any).abs)
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
+
+          {isAbsMode &&
+            results.map((entry, i) => {
+              const dirEntry = entry as DirEntry
+              return (
+                <div
+                  key={dirEntry.path}
+                  className={
+                    'flex items-center gap-2 px-3 py-1.5 cursor-default text-sm ' +
+                    (i === selectedIndex ? 'active-bg md-text' : 'md-text hover-bg')
+                  }
+                  onClick={() => handleAbsSelect(dirEntry)}
+                  onMouseEnter={() => setSelectedIndex(i)}
                 >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-          ))}
+                  {dirEntry.isDirectory ? (
+                    <Folder size={14} className="text-secondary shrink-0" />
+                  ) : (
+                    <FileCode size={14} className="text-secondary shrink-0" />
+                  )}
+                  <span className="truncate flex-1">{dirEntry.name}</span>
+                </div>
+              )
+            })}
         </div>
 
         <div className="flex items-center gap-3 px-3 py-1.5 border-t border-theme text-xs text-secondary">

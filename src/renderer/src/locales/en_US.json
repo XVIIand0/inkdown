@@ -474,7 +474,7 @@
     "borderColor": "Border Color"
   },
   "fileFinder": {
-    "placeholder": "Search files by name...",
+    "placeholder": "Search files by name (or type / or ~ to browse)...",
     "noProject": "Select a project first to search files",
     "recentFiles": "Recent Files",
     "noResults": "No matching files"

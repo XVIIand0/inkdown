@@ -474,7 +474,7 @@
     "borderColor": "邊框顏色"
   },
   "fileFinder": {
-    "placeholder": "依名稱搜尋檔案...",
+    "placeholder": "依名稱搜尋檔案（輸入 / 或 ~ 瀏覽路徑）...",
     "noProject": "請先選擇一個專案以搜尋檔案",
     "recentFiles": "最近的檔案",
     "noResults": "沒有符合的檔案"
