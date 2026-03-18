@@ -492,6 +492,7 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     hostName: string
     iconType: string
     iconValue?: string
+    borderColor?: string
     projects: IClaudeProject[]
   }> {
     const groups: Array<{
@@ -499,6 +500,7 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
       hostName: string
       iconType: string
       iconValue?: string
+      borderColor?: string
       projects: IClaudeProject[]
     }> = []
 
@@ -546,6 +548,7 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
         hostName: host.name,
         iconType: host.iconType,
         iconValue: host.iconValue,
+        borderColor: host.borderColor,
         projects: sortProjects(remoteProjects)
       })
     }

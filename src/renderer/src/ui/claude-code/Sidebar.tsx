@@ -465,7 +465,12 @@ const HostGroupHeader = observer(({
 
   const handleManageProjects = (e: React.MouseEvent) => {
     e.stopPropagation()
-    store.claudeCode.openManageProjectsDialog(hostId)
+    if (hostId) {
+      const host = store.sshHost.state.hosts.find((h: any) => h.id === hostId)
+      store.sshHost.openHostDialog(host, 'claude-code')
+    } else {
+      store.claudeCode.openManageProjectsDialog(null)
+    }
   }
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -473,28 +478,47 @@ const HostGroupHeader = observer(({
     const items: any[] = [
       {
         text: t('claudeCode.manageProjects'),
-        click: () => store.claudeCode.openManageProjectsDialog(hostId)
+        click: () => {
+          if (hostId) {
+            const h = store.sshHost.state.hosts.find((h: any) => h.id === hostId)
+            store.sshHost.openHostDialog(h, 'claude-code')
+          } else {
+            store.claudeCode.openManageProjectsDialog(null)
+          }
+        }
       }
     ]
     if (hostId) {
+      const host = store.sshHost.state.hosts.find((h: any) => h.id === hostId)
       items.push(
         {
           text: t('sshHost.editHost'),
-          click: () => store.sshHost.openHostDialog(
-            store.sshHost.state.hosts.find((h: any) => h.id === hostId)
-          )
+          click: () => store.sshHost.openHostDialog(host)
         },
         {
           text: t('sshHost.openTerminal'),
           click: () => {
-            const host = store.sshHost.state.hosts.find((h: any) => h.id === hostId)
             if (host) store.centerTabs.openSshTerminalTab(hostId, host.name)
           }
         },
         {
           text: t('sshHost.testConnection'),
           click: () => store.sshHost.testHost(hostId)
-        },
+        }
+      )
+      // Address switching
+      if (host?.addresses && host.addresses.length > 1) {
+        items.push({ hr: true })
+        for (const addr of host.addresses) {
+          const label = addr.label || `${addr.hostname}:${addr.port}`
+          const isActive = addr.id === host.activeAddressId
+          items.push({
+            text: label + (isActive ? ` (${t('sshHost.activeAddress')})` : ''),
+            click: () => store.sshHost.setActiveAddress(hostId, addr.id)
+          })
+        }
+      }
+      items.push(
         { hr: true },
         {
           text: t('sshHost.deleteHost'),
@@ -514,7 +538,7 @@ const HostGroupHeader = observer(({
 
   return (
     <div
-      className={'flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover-bg select-none group/host'}
+      className={'flex items-center gap-1.5 px-3 py-2 cursor-pointer hover-bg select-none group/host'}
       onClick={onToggle}
       onContextMenu={handleContextMenu}
     >
@@ -526,7 +550,7 @@ const HostGroupHeader = observer(({
         }
       />
       {renderIcon()}
-      <span className={'text-xs font-medium md-text truncate flex-1'}>{hostName}</span>
+      <span className={'text-sm font-medium md-text truncate flex-1'}>{hostName}</span>
       <button
         className={
           'p-0.5 rounded text-secondary hover-bg transition-colors opacity-0 ' +
@@ -535,9 +559,11 @@ const HostGroupHeader = observer(({
         onClick={handleManageProjects}
         title={t('claudeCode.manageProjects')}
       >
-        <FolderCog size={12} />
+        <FolderCog size={13} />
       </button>
-      <span className={'text-[10px] text-secondary'}>{projectCount}</span>
+      {projectCount > 0 && (
+        <span className={'text-[10px] text-secondary'}>{projectCount}</span>
+      )}
     </div>
   )
 })
@@ -1045,7 +1071,41 @@ const ProjectGroup = observer(({
     dragSourceRef.current = null
   }, [])
 
+  const { t } = useTranslation()
+
   if (!isExpanded) return null
+
+  // SSH host with no projects: show basic SSH actions
+  if (group.hostId && group.projects.length === 0) {
+    const host = store.sshHost.state.hosts.find((h: any) => h.id === group.hostId)
+    return (
+      <div className={'px-3 py-2 space-y-1'}>
+        <button
+          className={
+            'flex items-center gap-2 w-full px-2 py-1.5 rounded text-xs ' +
+            'text-secondary hover-bg transition-colors'
+          }
+          onClick={() => {
+            if (host) store.centerTabs.openSshTerminalTab(group.hostId!, host.name)
+          }}
+        >
+          <Terminal size={13} />
+          {t('sshHost.openTerminal')}
+        </button>
+        <button
+          className={
+            'flex items-center gap-2 w-full px-2 py-1.5 rounded text-xs ' +
+            'text-secondary hover-bg transition-colors'
+          }
+          onClick={() => store.sshHost.openHostDialog(host, 'claude-code')}
+        >
+          <FolderCog size={13} />
+          {t('claudeCode.manageProjects')}
+        </button>
+      </div>
+    )
+  }
+
   return (
     <>
       {group.projects.map((p: IClaudeProject) => (
@@ -1175,8 +1235,17 @@ export const ClaudeCodeSidebar = observer(() => {
                 ? localExpanded
                 : store.sshHost.state.expandedHostIds.includes(group.hostId!)
 
+              const borderColor = group.borderColor
               return (
-                <div key={group.hostId || 'local'}>
+                <div
+                  key={group.hostId || 'local'}
+                  className={'mb-1'}
+                  style={borderColor ? {
+                    borderLeft: `3px solid ${borderColor}`,
+                    marginLeft: 2,
+                    borderRadius: 3
+                  } : undefined}
+                >
                   <HostGroupHeader
                     hostId={group.hostId}
                     hostName={group.hostName}

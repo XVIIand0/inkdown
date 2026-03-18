@@ -14,6 +14,7 @@ const state = {
 const dialogData = {
   showHostDialog: false,
   editingHost: null as ISshHost | null,
+  initialTab: 'connection' as 'connection' | 'claude-code',
   showRemoteImportDialog: false,
   importHostId: null as string | null,
   remoteAllProjects: [] as IClaudeProject[],
@@ -185,11 +186,20 @@ export class SshHostStore extends StructStore<typeof state> {
     }
   }
 
-  openHostDialog(host?: ISshHost) {
-    this.setDialog({ showHostDialog: true, editingHost: host || null })
+  async setActiveAddress(hostId: string, addressId: string) {
+    await ipcRenderer.invoke('ssh-host:setActiveAddress', hostId, addressId)
+    await this.loadHosts()
+  }
+
+  openHostDialog(host?: ISshHost, initialTab?: 'connection' | 'claude-code') {
+    this.setDialog({
+      showHostDialog: true,
+      editingHost: host || null,
+      initialTab: initialTab || 'connection'
+    })
   }
 
   closeHostDialog() {
-    this.setDialog({ showHostDialog: false, editingHost: null })
+    this.setDialog({ showHostDialog: false, editingHost: null, initialTab: 'connection' })
   }
 }

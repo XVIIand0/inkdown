@@ -49,7 +49,7 @@ export const ClaudeCodeSettings = observer(() => {
             </div>
             <Button
               size={'small'}
-              onClick={() => store.claudeCode.openManageProjectsDialog(host.id)}
+              onClick={() => store.sshHost.openHostDialog(host, 'claude-code')}
             >
               {t('claudeCode.manageProjects')}
             </Button>
