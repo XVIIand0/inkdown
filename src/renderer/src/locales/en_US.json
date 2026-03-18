@@ -274,7 +274,8 @@
     "tabs": {
       "editor": "Editor",
       "keyboard": "Keyboard Shortcuts",
-      "model": "Model"
+      "model": "Model",
+      "claudeCode": "Claude Code"
     },
     "theme": "Theme",
     "theme_dark": "Dark",
@@ -388,7 +389,11 @@
     "iconColor": "Color",
     "iconImage": "Image",
     "resetIcon": "Reset",
-    "browse": "Browse"
+    "browse": "Browse",
+    "manageProjects": "Manage Projects",
+    "manageProjectsDesc": "Toggle which projects are visible in the sidebar and set custom display names. {{count}} projects found.",
+    "manageProjectsSave": "Save",
+    "displayNamePlaceholder": "Custom name..."
   },
   "tabs": {
     "close": "Close",

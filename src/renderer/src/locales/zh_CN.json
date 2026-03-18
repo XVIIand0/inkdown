@@ -93,7 +93,8 @@
     "tabs": {
       "editor": "编辑器",
       "model": "模型",
-      "keyboard": "快捷键"
+      "keyboard": "快捷键",
+      "claudeCode": "Claude Code"
     }
   },
   "model": {
@@ -388,7 +389,11 @@
     "iconColor": "颜色",
     "iconImage": "图片",
     "resetIcon": "重置",
-    "browse": "浏览"
+    "browse": "浏览",
+    "manageProjects": "管理项目",
+    "manageProjectsDesc": "选择要在侧边栏显示的项目并设置自定义名称。找到 {{count}} 个项目。",
+    "manageProjectsSave": "保存",
+    "displayNamePlaceholder": "自定义名称..."
   },
   "tabs": {
     "close": "关闭",

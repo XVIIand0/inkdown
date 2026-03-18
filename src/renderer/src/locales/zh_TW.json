@@ -93,7 +93,8 @@
     "tabs": {
       "editor": "編輯器",
       "model": "模型",
-      "keyboard": "快捷鍵"
+      "keyboard": "快捷鍵",
+      "claudeCode": "Claude Code"
     }
   },
   "model": {
@@ -388,7 +389,11 @@
     "iconColor": "顏色",
     "iconImage": "圖片",
     "resetIcon": "重置",
-    "browse": "瀏覽"
+    "browse": "瀏覽",
+    "manageProjects": "管理專案",
+    "manageProjectsDesc": "選擇要在側邊欄顯示的專案並設定自訂名稱。找到 {{count}} 個專案。",
+    "manageProjectsSave": "儲存",
+    "displayNamePlaceholder": "自訂名稱..."
   },
   "tabs": {
     "close": "關閉",
