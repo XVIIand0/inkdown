@@ -462,7 +462,16 @@
     "local": "本地",
     "latency": "{{ms}}ms",
     "resyncHost": "重新同步所有项目",
-    "resyncProject": "重新同步会话"
+    "resyncProject": "重新同步会话",
+    "connectionTab": "连接",
+    "claudeCodeTab": "Claude Code",
+    "addresses": "地址",
+    "addAddress": "添加地址",
+    "addressLabel": "标签",
+    "activeAddress": "活跃",
+    "switchAddress": "切换地址",
+    "removeAddress": "移除",
+    "borderColor": "边框颜色"
   },
   "fileFinder": {
     "placeholder": "按名称搜索文件...",

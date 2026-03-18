@@ -462,7 +462,16 @@
     "local": "Local",
     "latency": "{{ms}}ms",
     "resyncHost": "Resync All Projects",
-    "resyncProject": "Resync Sessions"
+    "resyncProject": "Resync Sessions",
+    "connectionTab": "Connection",
+    "claudeCodeTab": "Claude Code",
+    "addresses": "Addresses",
+    "addAddress": "Add Address",
+    "addressLabel": "Label",
+    "activeAddress": "Active",
+    "switchAddress": "Switch Address",
+    "removeAddress": "Remove",
+    "borderColor": "Border Color"
   },
   "fileFinder": {
     "placeholder": "Search files by name...",

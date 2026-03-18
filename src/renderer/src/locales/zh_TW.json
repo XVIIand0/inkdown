@@ -462,7 +462,16 @@
     "local": "本機",
     "latency": "{{ms}}ms",
     "resyncHost": "重新同步所有專案",
-    "resyncProject": "重新同步對話"
+    "resyncProject": "重新同步對話",
+    "connectionTab": "連線",
+    "claudeCodeTab": "Claude Code",
+    "addresses": "位址",
+    "addAddress": "新增位址",
+    "addressLabel": "標籤",
+    "activeAddress": "使用中",
+    "switchAddress": "切換位址",
+    "removeAddress": "移除",
+    "borderColor": "邊框顏色"
   },
   "fileFinder": {
     "placeholder": "依名稱搜尋檔案...",
