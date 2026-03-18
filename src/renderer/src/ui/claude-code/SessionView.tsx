@@ -19,6 +19,7 @@ import { useStore } from '@/store/store'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { ProjectBadge } from './ProjectBadge'
 import '@xterm/xterm/css/xterm.css'
 
 const ipcRenderer = window.electron.ipcRenderer
@@ -945,6 +946,7 @@ export const SessionView = observer(({ sessionId, projectId, hostId }: SessionVi
     <div className="flex flex-col h-full">
       {/* Header with mode toggle */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-theme shrink-0">
+        <ProjectBadge projectId={effectiveProjectId} hostId={hostId} />
         <span className="text-sm font-medium truncate md-text flex-1">
           {activeProject?.path ?? ''}
         </span>
