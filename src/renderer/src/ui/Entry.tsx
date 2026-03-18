@@ -16,6 +16,7 @@ import { CenterArea } from './center/CenterArea'
 import { ManageProjectsDialog } from './claude-code/ManageProjectsDialog'
 import { SshHostDialog } from './claude-code/SshHostDialog'
 import { FileFinder } from './claude-code/FileFinder'
+import { CustomizeDialog } from './claude-code/CustomizeDialog'
 const Entry = observer(() => {
   const store = useStore()
   const claudeCodeMode = store.settings.state.claudeCodeMode
@@ -53,6 +54,7 @@ const Entry = observer(() => {
       <SpaceFiles />
       <ManageProjectsDialog />
       <SshHostDialog />
+      <CustomizeDialog />
       <FileFinder />
     </div>
   )

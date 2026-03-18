@@ -44,6 +44,7 @@ const state = {
   claudeCodeImportedProjects: [] as any,
   claudeCodeRecentFiles: [] as any,
   claudeCodeLayout: null as any,
+  claudeCodeLocalHost: null as { name?: string; iconType?: string; iconValue?: string } | null,
   language: getSystemLanguage() as 'zh' | 'zh-TW' | 'en',
   modelOptions: {
     temperature: {
