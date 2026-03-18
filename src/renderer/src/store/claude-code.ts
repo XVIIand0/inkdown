@@ -37,8 +37,9 @@ const state = {
   searchLoading: false,
   sessionAliases: {} as Record<string, string>,
   pinnedSessionIds: [] as string[],
-  projectConfigs: {} as Record<string, { iconType: string; iconValue?: string; sort: number }>
-
+  projectConfigs: {} as Record<string, { iconType: string; iconValue?: string; sort: number }>,
+  showFileFinder: false,
+  recentFiles: [] as Array<{ rel: string; abs: string; projectId: string; timestamp: number }>
 }
 
 const dialogData = {
@@ -174,6 +175,8 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     } else {
       await this.loadProjects()
     }
+    this.loadRecentFiles()
+    this.store.centerTabs.restoreLayout()
   }
 
   async selectProject(id: string, hostId?: string | null) {
@@ -492,6 +495,37 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     }
 
     return groups
+  }
+
+  openFileFinder() {
+    this.setState({ showFileFinder: true })
+  }
+
+  closeFileFinder() {
+    this.setState({ showFileFinder: false })
+  }
+
+  addRecentFile(entry: { rel: string; abs: string; projectId: string }) {
+    this.setState((s) => {
+      s.recentFiles = s.recentFiles.filter((f) => f.abs !== entry.abs)
+      s.recentFiles.unshift({ ...entry, timestamp: Date.now() })
+      if (s.recentFiles.length > 50) s.recentFiles = s.recentFiles.slice(0, 50)
+    })
+    this.store.settings.setSetting('claudeCodeRecentFiles', [...this.state.recentFiles])
+  }
+
+  removeRecentFile(abs: string) {
+    this.setState((s) => {
+      s.recentFiles = s.recentFiles.filter((f) => f.abs !== abs)
+    })
+    this.store.settings.setSetting('claudeCodeRecentFiles', [...this.state.recentFiles])
+  }
+
+  loadRecentFiles() {
+    const saved = this.store.settings.state.claudeCodeRecentFiles
+    if (Array.isArray(saved)) {
+      this.setState({ recentFiles: saved })
+    }
   }
 
   get activeProject(): IClaudeProject | null {

@@ -341,6 +341,14 @@ export class KeyboardStore {
         custom: undefined,
         scene: 'global'
       }
+    ],
+    [
+      'quickOpenFile',
+      {
+        system: 'mod+p',
+        custom: undefined,
+        scene: 'global'
+      }
     ]
   ])
   get currentTab() {
@@ -368,9 +376,7 @@ export class KeyboardStore {
                 continue
               }
             }
-            if (value.scene === 'note') {
-              e.preventDefault()
-            }
+            e.preventDefault()
             this.run(key)
           }
         } else if (isHotkey(value.custom, e)) {
@@ -523,6 +529,11 @@ export class KeyboardStore {
       case 'deleteFile':
         if (this.store.note.state.selectedDoc && this.store.note.state.selectedDoc.id !== 'root') {
           this.store.note.moveToTrash(this.store.note.state.selectedDoc)
+        }
+        break
+      case 'quickOpenFile':
+        if (this.store.settings.state.claudeCodeMode) {
+          this.store.claudeCode.openFileFinder()
         }
         break
     }

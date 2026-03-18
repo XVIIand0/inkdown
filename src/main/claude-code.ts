@@ -181,6 +181,49 @@ ipcMain.handle(
   }
 )
 
+const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg', '.webp',
+  '.woff', '.woff2', '.ttf', '.eot', '.otf',
+  '.mp3', '.mp4', '.avi', '.mov', '.mkv', '.webm',
+  '.zip', '.tar', '.gz', '.rar', '.7z',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+  '.lock', '.sqlite', '.db', '.wasm', '.node',
+  '.DS_Store'
+])
+
+ipcMain.handle('claude-code:getProjectFilesFlat', async (_, projectPath: string) => {
+  if (!existsSync(projectPath)) return []
+
+  const results: Array<{ rel: string; abs: string }> = []
+  const MAX_FILES = 10000
+  const MAX_DEPTH = 10
+
+  function walk(dirPath: string, depth: number) {
+    if (depth > MAX_DEPTH || results.length >= MAX_FILES) return
+    try {
+      const entries = readdirSync(dirPath, { withFileTypes: true })
+      for (const entry of entries) {
+        if (results.length >= MAX_FILES) break
+        if (entry.name.startsWith('.') || IGNORED_DIRS.has(entry.name)) continue
+        const fullPath = join(dirPath, entry.name)
+        if (entry.isDirectory()) {
+          walk(fullPath, depth + 1)
+        } else {
+          const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop()!.toLowerCase() : ''
+          if (BINARY_EXTENSIONS.has(ext)) continue
+          const rel = fullPath.substring(projectPath.length + 1).replace(/\\/g, '/')
+          results.push({ rel, abs: fullPath })
+        }
+      }
+    } catch {
+      // Permission denied or similar
+    }
+  }
+
+  walk(projectPath, 0)
+  return results
+})
+
 ipcMain.handle('claude-code:getProjectFiles', async (_, projectPath: string) => {
   if (!existsSync(projectPath)) return []
 
