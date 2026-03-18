@@ -3,7 +3,7 @@ import { observer } from 'mobx-react-lite'
 import { useStore } from '@/store/store'
 import { useTranslation } from 'react-i18next'
 import { TabBar } from '../tabs/TabBar'
-import { SessionView, SshTerminalView } from '../claude-code/SessionView'
+import { SessionView, SshTerminalView, LocalTerminalView } from '../claude-code/SessionView'
 import { MindNoteEditor } from '../mind-note/MindNoteEditor'
 import { CodeFileEditor } from '../code-editor/CodeFileEditor'
 import { Bot } from 'lucide-react'
@@ -188,6 +188,9 @@ export const TabGroupPanel = observer(({ groupId }: TabGroupPanelProps) => {
         )}
         {activeTab?.type === 'ssh-terminal' && activeTab.hostId && (
           <SshTerminalView hostId={activeTab.hostId} />
+        )}
+        {activeTab?.type === 'local-terminal' && activeTab.filePath && (
+          <LocalTerminalView projectPath={activeTab.filePath} />
         )}
       </div>
       {renderDropOverlay()}

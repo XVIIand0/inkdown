@@ -25,6 +25,8 @@ const state = {
 
 export class CenterTabStore extends StructStore<typeof state> {
   private _debounceTimer: ReturnType<typeof setTimeout> | null = null
+  private _closedTabs: CenterTab[] = []
+  private readonly MAX_CLOSED = 20
 
   constructor(private readonly store: Store) {
     super(state)
@@ -179,6 +181,23 @@ export class CenterTabStore extends StructStore<typeof state> {
     this._addTab(tab)
   }
 
+  openLocalTerminalTab(projectPath: string, projectName: string) {
+    const existing = this.state.tabs.find(
+      (t) => t.type === 'local-terminal' && t.filePath === projectPath
+    )
+    if (existing) {
+      this._focusTab(existing.id)
+      return
+    }
+    const tab: CenterTab = {
+      id: crypto.randomUUID(),
+      type: 'local-terminal',
+      title: `Terminal: ${projectName}`,
+      filePath: projectPath
+    }
+    this._addTab(tab)
+  }
+
   openSshTerminalTab(hostId: string, hostName: string) {
     const existing = this.state.tabs.find(
       (t) => t.type === 'ssh-terminal' && t.hostId === hostId
@@ -233,6 +252,13 @@ export class CenterTabStore extends StructStore<typeof state> {
     this.setState((s) => {
       const tabIndex = s.tabs.findIndex((t) => t.id === id)
       if (tabIndex < 0) return
+
+      // Save to closed history for reopen
+      const closedTab = { ...s.tabs[tabIndex] }
+      this._closedTabs.push(closedTab)
+      if (this._closedTabs.length > this.MAX_CLOSED) {
+        this._closedTabs.shift()
+      }
 
       const group = this.findGroupForTab(id)
       if (group) {
@@ -320,6 +346,14 @@ export class CenterTabStore extends StructStore<typeof state> {
       s.focusedGroupId = DEFAULT_GROUP_ID
     })
     this.scheduleLayoutSave()
+  }
+
+  reopenLastClosedTab() {
+    const tab = this._closedTabs.pop()
+    if (!tab) return
+    // Give it a new ID to avoid conflicts
+    tab.id = crypto.randomUUID()
+    this._addTab(tab)
   }
 
   // ─── Selection & movement ───

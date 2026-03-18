@@ -20,6 +20,8 @@ const TabIcon = ({ type }: { type: CenterTab['type'] }) => {
       return <FileCode className={'w-3.5 h-3.5 shrink-0'} />
     case 'ssh-terminal':
       return <Terminal className={'w-3.5 h-3.5 shrink-0'} />
+    case 'local-terminal':
+      return <Terminal className={'w-3.5 h-3.5 shrink-0'} />
   }
 }
 

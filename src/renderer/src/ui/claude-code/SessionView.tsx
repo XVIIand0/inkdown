@@ -433,6 +433,263 @@ export const SshTerminalView = ({ hostId }: { hostId: string }) => {
   )
 }
 
+// Cache for local terminal instances
+const localTerminalCache = new Map<
+  string,
+  {
+    term: Terminal
+    fitAddon: FitAddon
+    terminalId: string | null
+    status: 'connecting' | 'running' | 'exited' | 'error'
+    errorMsg: string
+  }
+>()
+
+export const LocalTerminalView = ({ projectPath }: { projectPath: string }) => {
+  const { t } = useTranslation()
+  const terminalRef = useRef<HTMLDivElement>(null)
+  const terminalIdRef = useRef<string | null>(null)
+  const [status, setStatus] = useState<'connecting' | 'running' | 'exited' | 'error'>(
+    'connecting'
+  )
+  const [errorMsg, setErrorMsg] = useState('')
+  const [restartCount, setRestartCount] = useState(0)
+
+  useEffect(() => {
+    const container = terminalRef.current
+    if (!container) return
+
+    const cached = localTerminalCache.get(projectPath)
+
+    if (cached && cached.status === 'running') {
+      container.appendChild(cached.term.element!)
+      setStatus(cached.status)
+      setErrorMsg(cached.errorMsg)
+      terminalIdRef.current = cached.terminalId
+
+      requestAnimationFrame(() => {
+        try {
+          cached.fitAddon.fit()
+        } catch {
+          // ignore
+        }
+      })
+
+      const resizeObserver = new ResizeObserver(() => {
+        try {
+          cached.fitAddon.fit()
+        } catch {
+          // ignore
+        }
+      })
+      resizeObserver.observe(container)
+
+      return () => {
+        resizeObserver.disconnect()
+        if (cached.term.element?.parentElement === container) {
+          container.removeChild(cached.term.element)
+        }
+      }
+    }
+
+    if (cached) {
+      cached.term.dispose()
+      localTerminalCache.delete(projectPath)
+      if (cached.terminalId) {
+        ipcRenderer.invoke('claude-code:killTerminal', cached.terminalId)
+      }
+    }
+
+    const theme = getTerminalTheme()
+    const term = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily:
+        "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, Monaco, monospace",
+      theme,
+      convertEol: true,
+      scrollback: 10000,
+      allowProposedApi: true
+    })
+
+    const fitAddon = new FitAddon()
+    const unicode11 = new Unicode11Addon()
+    term.loadAddon(fitAddon)
+    term.loadAddon(unicode11)
+    term.unicode.activeVersion = '11'
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true
+      const isMac = navigator.platform.startsWith('Mac')
+      const mod = isMac ? e.metaKey : e.ctrlKey
+      if (mod && e.key === 'c' && term.hasSelection()) {
+        e.preventDefault()
+        navigator.clipboard.writeText(term.getSelection())
+        term.clearSelection()
+        return false
+      }
+      if (mod && e.key === 'v') {
+        e.preventDefault()
+        navigator.clipboard.readText().then((text) => {
+          const tid = terminalIdRef.current
+          if (tid) {
+            ipcRenderer.invoke('claude-code:terminalInput', { sessionId: tid, data: text })
+          }
+        })
+        return false
+      }
+      return true
+    })
+    term.open(container)
+
+    const terminalId = `local-${Date.now()}`
+    const entry = {
+      term,
+      fitAddon,
+      terminalId,
+      status: 'connecting' as const,
+      errorMsg: ''
+    }
+    localTerminalCache.set(projectPath, entry)
+
+    const updateStatus = (s: typeof status, err = '') => {
+      const e = localTerminalCache.get(projectPath)
+      if (e) {
+        ;(e as any).status = s
+        e.errorMsg = err
+      }
+      setStatus(s)
+      setErrorMsg(err)
+    }
+
+    term.onData((data) => {
+      const tid = terminalIdRef.current
+      if (tid) {
+        ipcRenderer.invoke('claude-code:terminalInput', { sessionId: tid, data })
+      }
+    })
+
+    term.onResize(({ cols, rows }) => {
+      const tid = terminalIdRef.current
+      if (tid) {
+        ipcRenderer.invoke('claude-code:terminalResize', { sessionId: tid, cols, rows })
+      }
+    })
+
+    const onData = (_: unknown, payload: { sessionId: string; data: string }) => {
+      if (payload.sessionId === terminalIdRef.current) {
+        term.write(payload.data)
+        updateStatus('running')
+      }
+    }
+
+    const onExit = (
+      _: unknown,
+      payload: { sessionId: string; code: number }
+    ) => {
+      if (payload.sessionId === terminalIdRef.current) {
+        updateStatus('exited')
+        term.writeln(
+          `\r\n\x1b[90m[Terminal exited with code ${payload.code}]\x1b[0m`
+        )
+      }
+    }
+
+    ipcRenderer.on('claude-code:terminal-data', onData)
+    ipcRenderer.on('claude-code:terminal-exit', onExit)
+
+    requestAnimationFrame(() => {
+      try {
+        fitAddon.fit()
+      } catch {
+        // ignore
+      }
+
+      ipcRenderer
+        .invoke('claude-code:spawnLocalTerminal', {
+          terminalId,
+          cwd: projectPath,
+          cols: term.cols,
+          rows: term.rows
+        })
+        .then((result: { success: boolean; terminalId?: string; error?: string }) => {
+          if (result.success && result.terminalId) {
+            terminalIdRef.current = result.terminalId
+            entry.terminalId = result.terminalId
+          } else if (!result.success) {
+            updateStatus('error', result.error || 'Failed to spawn terminal')
+          }
+        })
+        .catch((err: Error) => {
+          updateStatus('error', err.message)
+        })
+    })
+
+    const resizeObserver = new ResizeObserver(() => {
+      try {
+        fitAddon.fit()
+      } catch {
+        // ignore
+      }
+    })
+    resizeObserver.observe(container)
+
+    return () => {
+      ipcRenderer.removeListener('claude-code:terminal-data', onData)
+      ipcRenderer.removeListener('claude-code:terminal-exit', onExit)
+      resizeObserver.disconnect()
+      if (term.element?.parentElement === container) {
+        container.removeChild(term.element)
+      }
+    }
+  }, [projectPath, restartCount])
+
+  const handleRestart = useCallback(() => {
+    const cached = localTerminalCache.get(projectPath)
+    if (cached?.terminalId) {
+      ipcRenderer.invoke('claude-code:killTerminal', cached.terminalId)
+    }
+    if (cached) {
+      cached.term.dispose()
+      localTerminalCache.delete(projectPath)
+    }
+    terminalIdRef.current = null
+    setRestartCount((c) => c + 1)
+  }, [projectPath])
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      {status === 'error' && (
+        <div className="flex items-center justify-center flex-1 text-secondary">
+          <div className="text-center space-y-3">
+            <AlertCircle size={32} className="mx-auto opacity-40" />
+            <p className="text-sm">{errorMsg || 'Failed to open terminal'}</p>
+          </div>
+        </div>
+      )}
+      <div
+        ref={terminalRef}
+        className="flex-1 min-h-0"
+        style={{ padding: '8px' }}
+      />
+      <div className="shrink-0 border-t border-theme px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs text-secondary">
+          <TerminalIcon size={14} />
+          <span className="truncate" title={projectPath}>{projectPath}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRestart}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover-bg text-secondary"
+            title="Restart"
+          >
+            <RotateCw size={12} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const LiveView = ({
   sessionId,
   projectPath,
@@ -612,10 +869,17 @@ const LiveView = ({
     })
 
     // Listen for terminal output
+    const isNewConversation = sessionId.startsWith('new-')
+    let hasRefreshedSessions = false
     const onData = (_: unknown, payload: { sessionId: string; data: string }) => {
       if (payload.sessionId === sessionId) {
         term.write(payload.data)
         updateStatus('running')
+        // Refresh sidebar session list on first output from new conversations
+        if (isNewConversation && !hasRefreshedSessions) {
+          hasRefreshedSessions = true
+          store.claudeCode.refreshSessions()
+        }
       }
     }
 

@@ -360,3 +360,83 @@ ipcMain.handle('claude-code:killTerminal', async (_, sessionId: string) => {
   }
   return false
 })
+
+// ─── Local Shell Terminal ───
+
+ipcMain.handle(
+  'claude-code:spawnLocalTerminal',
+  async (
+    event,
+    options: {
+      terminalId: string
+      cwd: string
+      cols?: number
+      rows?: number
+    }
+  ) => {
+    // Resolve ~ to home directory
+    const cwd = options.cwd.startsWith('~')
+      ? join(homedir(), options.cwd.slice(1))
+      : options.cwd
+
+    // Kill existing terminal with same ID
+    const existing = terminalProcesses.get(options.terminalId)
+    if (existing) {
+      existing.kill()
+      terminalProcesses.delete(options.terminalId)
+    }
+
+    const sendToRenderer = (channel: string, data: unknown) => {
+      try {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        if (win && !win.isDestroyed()) {
+          event.sender.send(channel, data)
+        }
+      } catch {
+        // Window may have been closed
+      }
+    }
+
+    const shell = process.platform === 'win32'
+      ? 'powershell.exe'
+      : process.env.SHELL || '/bin/zsh'
+
+    let ptyProcess: any
+    try {
+      ptyProcess = getPty().spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: options.cols || 120,
+        rows: options.rows || 30,
+        cwd,
+        env: {
+          ...getCleanEnv(),
+          FORCE_COLOR: '1',
+          TERM: 'xterm-256color',
+          LANG: 'en_US.UTF-8',
+          LC_ALL: 'en_US.UTF-8'
+        } as Record<string, string>
+      })
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Failed to spawn terminal' }
+    }
+
+    terminalProcesses.set(options.terminalId, ptyProcess)
+
+    ptyProcess.onData((data: string) => {
+      sendToRenderer('claude-code:terminal-data', {
+        sessionId: options.terminalId,
+        data
+      })
+    })
+
+    ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+      terminalProcesses.delete(options.terminalId)
+      sendToRenderer('claude-code:terminal-exit', {
+        sessionId: options.terminalId,
+        code: exitCode
+      })
+    })
+
+    return { success: true, terminalId: options.terminalId }
+  }
+)
