@@ -26,7 +26,8 @@ import {
   FolderCog
 } from 'lucide-react'
 import { openMenus } from '@/ui/common/Menu'
-import { IconPicker, IconType, renderIconPreview } from './IconPicker'
+import { IconType, renderIconPreview } from './IconPicker'
+import { openCustomizeDialog } from './CustomizeDialog'
 
 type ViewMode = 'sessions' | 'files' | 'notes'
 
@@ -106,6 +107,77 @@ const FileTreeView = observer(() => {
     </div>
   )
 })
+
+const ipcRenderer = window.electron.ipcRenderer
+
+interface PinnedSessionInfo {
+  id: string
+  name: string
+}
+
+const PinnedSessionPreview = ({
+  projectId,
+  hostId
+}: {
+  projectId: string
+  hostId?: string | null
+}) => {
+  const store = useStore()
+  const [pinnedSessions, setPinnedSessions] = useState<PinnedSessionInfo[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const [pins, aliases, sessions] = await Promise.all([
+          ipcRenderer.invoke('claude-code:getSessionPins', projectId, hostId || null),
+          ipcRenderer.invoke('claude-code:getSessionAliases', projectId, hostId || null),
+          hostId
+            ? ipcRenderer.invoke('ssh-host:getRemoteSessions', hostId, projectId)
+            : ipcRenderer.invoke('claude-code:getSessions', projectId)
+        ])
+        if (cancelled) return
+        const pinSet = new Set(pins as string[])
+        const aliasMap = aliases as Record<string, string>
+        const pinned = (sessions as IClaudeSession[])
+          .filter((s) => pinSet.has(s.id))
+          .map((s) => ({
+            id: s.id,
+            name: aliasMap[s.id] || s.firstMessage || 'Untitled'
+          }))
+        setPinnedSessions(pinned)
+      } catch {
+        // ignore
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [projectId, hostId])
+
+  const handleClick = (sessionId: string, displayName: string) => {
+    store.centerTabs.openSessionTab(projectId, sessionId, displayName, hostId || undefined)
+  }
+
+  if (pinnedSessions.length === 0) return null
+
+  return (
+    <div className={'py-0.5'}>
+      {pinnedSessions.map((s) => (
+        <div
+          key={s.id}
+          className={'flex items-center gap-2 py-1 px-6 cursor-pointer text-xs md-text hover-bg'}
+          onClick={(e) => {
+            e.stopPropagation()
+            handleClick(s.id, s.name)
+          }}
+        >
+          <Pin className={'w-3 h-3 shrink-0 text-blue-400'} />
+          <span className={'truncate flex-1'}>{s.name}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 const SessionList = observer(() => {
   const store = useStore()
@@ -488,6 +560,29 @@ const HostGroupHeader = observer(({
         }
       }
     ]
+    if (!hostId) {
+      items.push(
+        {
+          text: t('claudeCode.openTerminal'),
+          icon: <Terminal size={14} />,
+          click: () => {
+            store.centerTabs.openLocalTerminalTab('~', 'Terminal')
+          }
+        },
+        {
+          text: t('claudeCode.customize'),
+          icon: <Settings size={14} />,
+          click: () => {
+            openCustomizeDialog({
+              type: 'local-host',
+              name: hostName,
+              iconType: (iconType || 'default') as IconType,
+              iconValue: iconValue || ''
+            })
+          }
+        }
+      )
+    }
     if (hostId) {
       const host = store.sshHost.state.hosts.find((h: any) => h.id === hostId)
       items.push(
@@ -599,12 +694,18 @@ const ProjectItem = observer(({
   const [dragOver, setDragOver] = useState(false)
 
   const handleToggle = useCallback(() => {
-    const willExpand = !expanded
-    setExpanded(willExpand)
-    if (willExpand) {
+    if (expanded && isActive) {
+      // Collapse: just close
+      setExpanded(false)
+    } else if (expanded && !isActive) {
+      // Already expanded but not active: activate it
+      store.claudeCode.selectProject(project.id, hostId)
+    } else {
+      // Expand and activate
+      setExpanded(true)
       store.claudeCode.selectProject(project.id, hostId)
     }
-  }, [expanded, project.id, hostId, store])
+  }, [expanded, isActive, project.id, hostId, store])
 
   const config = store.claudeCode.getProjectConfig(project.id)
   const displayName = config.displayName || project.path.split(/[/\\]/).filter(Boolean).pop() || project.path
@@ -628,23 +729,37 @@ const ProjectItem = observer(({
     }
   }, [hostId, project.id, syncing, store])
 
-  const [showSettings, setShowSettings] = useState(false)
-  const settingsRef = useRef<HTMLDivElement>(null)
+  const openProjectSettings = useCallback(() => {
+    const config = store.claudeCode.getProjectConfig(project.id)
+    openCustomizeDialog({
+      type: 'project',
+      projectId: project.id,
+      name: config.displayName || displayName,
+      path: project.path,
+      iconType: (config.iconType || 'default') as IconType,
+      iconValue: config.iconValue || ''
+    })
+  }, [store, project.id, project.path, displayName])
 
-  useEffect(() => {
-    if (!showSettings) return
-    const handler = (e: MouseEvent) => {
-      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
-        setShowSettings(false)
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const items = [
+      {
+        text: t('claudeCode.openTerminal'),
+        icon: <Terminal size={14} />,
+        click: () => {
+          store.centerTabs.openLocalTerminalTab(project.path, displayName)
+        }
+      },
+      {
+        text: t('claudeCode.projectSettings'),
+        icon: <Settings size={14} />,
+        click: openProjectSettings
       }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showSettings])
-
-  const handleIconChange = useCallback((type: IconType, value: string) => {
-    store.claudeCode.setProjectConfig(project.id, { iconType: type, iconValue: value })
-  }, [store, project.id])
+    ]
+    openMenus(e, items)
+  }, [store, project.path, displayName, t, openProjectSettings])
 
   return (
     <div
@@ -673,9 +788,11 @@ const ProjectItem = observer(({
         className={
           'flex items-center gap-1.5 py-2 px-2 cursor-pointer ' +
           'hover-bg group/proj ' +
-          (project.sessionCount === 0 ? 'opacity-50' : '')
+          (isActive ? 'active-bg ' : '') +
+          (project.sessionCount === 0 && !isActive ? 'opacity-50' : '')
         }
         onClick={handleToggle}
+        onContextMenu={handleContextMenu}
       >
         {expanded ? (
           <ChevronDown className={'w-3.5 h-3.5 shrink-0 text-secondary'} />
@@ -696,7 +813,7 @@ const ProjectItem = observer(({
           }
           onClick={(e) => {
             e.stopPropagation()
-            setShowSettings(!showSettings)
+            openProjectSettings()
           }}
           title={t('claudeCode.projectSettings')}
         >
@@ -722,22 +839,17 @@ const ProjectItem = observer(({
         )}
       </div>
 
-      {showSettings && (
-        <div
-          ref={settingsRef}
-          className={
-            'mx-2 mb-2 p-3 rounded border border-theme'
-          }
-          style={{ background: 'var(--md-bg-mute)' }}
-        >
-          <div className={'text-xs font-medium md-text mb-2'}>
-            {t('claudeCode.projectSettings')}
+      {expanded && !isActive && (
+        <div className={'pb-1'}>
+          <PinnedSessionPreview projectId={project.id} hostId={hostId} />
+          <div
+            className={'px-6 py-1 text-[10px] text-secondary cursor-pointer hover-bg'}
+            onClick={() => store.claudeCode.selectProject(project.id, hostId)}
+          >
+            {project.sessionCount > 0
+              ? `${project.sessionCount} sessions`
+              : t('claudeCode.noSessions')}
           </div>
-          <IconPicker
-            iconType={store.claudeCode.getProjectConfig(project.id).iconType as IconType}
-            iconValue={store.claudeCode.getProjectConfig(project.id).iconValue || ''}
-            onChange={handleIconChange}
-          />
         </div>
       )}
 

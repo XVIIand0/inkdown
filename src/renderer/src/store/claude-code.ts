@@ -275,6 +275,23 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     }
   }
 
+  async refreshSessions() {
+    const id = this.state.activeProjectId
+    if (!id) return
+    const hostId = this.state.activeHostId
+    try {
+      let sessions: IClaudeSession[]
+      if (hostId) {
+        sessions = await ipcRenderer.invoke('ssh-host:getRemoteSessions', hostId, id)
+      } else {
+        sessions = await ipcRenderer.invoke('claude-code:getSessions', id)
+      }
+      this.setState({ sessions: sessions || [] })
+    } catch {
+      // Silently fail — this is a background refresh
+    }
+  }
+
   async selectSession(id: string) {
     this.setState({
       activeSessionId: id,
@@ -514,10 +531,12 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     }
 
     // Local group always first
+    const localHost = this.store.settings.state.claudeCodeLocalHost
     groups.push({
       hostId: null,
-      hostName: 'Local',
-      iconType: 'default',
+      hostName: localHost?.name || 'Local',
+      iconType: localHost?.iconType || 'default',
+      iconValue: localHost?.iconValue,
       projects: sortProjects(this.state.projects)
     })
 
