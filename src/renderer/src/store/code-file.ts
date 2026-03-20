@@ -53,7 +53,22 @@ export class CodeFileStore {
   }
 
   async loadFile(filePath: string) {
-    if (this.openFiles.has(filePath)) return
+    const existing = this.openFiles.get(filePath)
+    if (existing) {
+      // Re-read from disk if not dirty (pick up external changes)
+      if (!existing.dirty) {
+        try {
+          const content = await window.api.fs.readFile(filePath, 'utf-8')
+          runInAction(() => {
+            existing.content = content as string
+            existing.originalContent = content as string
+          })
+        } catch {
+          // File may have been deleted — keep stale content
+        }
+      }
+      return
+    }
     try {
       const content = await window.api.fs.readFile(filePath, 'utf-8')
       const language = detectLanguage(filePath)
