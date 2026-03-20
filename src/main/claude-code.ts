@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { readdirSync, readFileSync, statSync, existsSync, createReadStream } from 'fs'
+import { spawn } from 'child_process'
 import { join, relative } from 'path'
 import { homedir } from 'os'
 import { createInterface } from 'readline'
@@ -16,18 +17,68 @@ import { knex } from './database/model'
 const claudeDir = join(homedir(), '.claude')
 const projectsDir = join(claudeDir, 'projects')
 
-const IGNORED_DIRS = new Set([
-  'node_modules',
+// VS Code-aligned exclude patterns:
+// files.exclude defaults + search.exclude defaults + common build/runtime dirs
+const ALWAYS_EXCLUDED_DIRS = [
+  // VS Code files.exclude defaults
   '.git',
+  '.svn',
+  '.hg',
+  // VS Code search.exclude defaults
+  'node_modules',
+  'bower_components',
+  // Build output
   'dist',
   'build',
   'out',
+  '.output',
   '.next',
+  '.nuxt',
+  // Caches & tooling
   '.cache',
   '.vite',
+  '.turbo',
+  '.parcel-cache',
+  '.webpack',
+  '.rollup.cache',
+  // Python
+  '__pycache__',
+  '.venv',
+  'venv',
+  '.tox',
+  '.mypy_cache',
+  '.pytest_cache',
+  '.ruff_cache',
+  'site-packages',
+  '*.egg-info',
+  // Ruby
+  'vendor/bundle',
+  // Java/JVM
+  'target',
+  '.gradle',
+  // Rust
+  'target/debug',
+  'target/release',
+  // .NET
+  'bin',
+  'obj',
+  // Test & coverage
   'coverage',
-  '__pycache__'
-])
+  '.nyc_output',
+  // IDE / editor
+  '.idea',
+  '.vs',
+  // OS
+  '.DS_Store',
+  'Thumbs.db'
+]
+
+const ALWAYS_EXCLUDED_PATTERNS = [
+  '*.pyc',
+  '*.pyo',
+  '*.class',
+  '*.code-search'
+]
 
 // Cache for gitignore instances per project path
 const gitignoreCache = new Map<string, { ig: Ignore; time: number }>()
@@ -37,20 +88,22 @@ function loadGitignore(projectPath: string): Ignore {
   if (cached && Date.now() - cached.time < 30000) return cached.ig
 
   const ig = ignore()
-  ig.add('.git')
+
+  // Always add our baseline excludes (like VS Code's files.exclude + search.exclude)
+  for (const dir of ALWAYS_EXCLUDED_DIRS) ig.add(dir)
+  for (const pat of ALWAYS_EXCLUDED_PATTERNS) ig.add(pat)
+
+  // Layer .gitignore on top (may add more excludes)
   const gitignorePath = join(projectPath, '.gitignore')
   if (existsSync(gitignorePath)) {
     try {
       const content = readFileSync(gitignorePath, 'utf-8')
       ig.add(content)
     } catch {
-      // Fall back to IGNORED_DIRS if .gitignore can't be read
-      for (const dir of IGNORED_DIRS) ig.add(dir)
+      // ignore read errors
     }
-  } else {
-    // No .gitignore — use hardcoded defaults
-    for (const dir of IGNORED_DIRS) ig.add(dir)
   }
+
   gitignoreCache.set(projectPath, { ig, time: Date.now() })
   return ig
 }
@@ -221,26 +274,43 @@ const BINARY_EXTENSIONS = new Set([
 ipcMain.handle('claude-code:getProjectFilesFlat', async (_, projectPath: string) => {
   if (!existsSync(projectPath)) return []
 
-  const ig = loadGitignore(projectPath)
+  const rootIg = loadGitignore(projectPath)
   const results: Array<{ rel: string; abs: string }> = []
   const MAX_FILES = 10000
-  const MAX_DEPTH = 10
+  const MAX_DEPTH = 15
 
-  function walk(dirPath: string, depth: number) {
+  function walk(dirPath: string, depth: number, parentIg: Ignore) {
     if (depth > MAX_DEPTH || results.length >= MAX_FILES) return
+
+    // Check for nested .gitignore in this directory
+    let ig = parentIg
+    if (depth > 0) {
+      const nestedGitignore = join(dirPath, '.gitignore')
+      if (existsSync(nestedGitignore)) {
+        try {
+          ig = ignore().add(parentIg) as unknown as Ignore
+          ig.add(readFileSync(nestedGitignore, 'utf-8'))
+        } catch {
+          // use parent
+        }
+      }
+    }
+
     try {
       const entries = readdirSync(dirPath, { withFileTypes: true })
       for (const entry of entries) {
         if (results.length >= MAX_FILES) break
         const fullPath = join(dirPath, entry.name)
+        const rel = relative(projectPath, fullPath).replace(/\\/g, '/')
+
         if (entry.isDirectory()) {
-          const rel = relative(projectPath, fullPath).replace(/\\/g, '/') + '/'
-          if (ig.ignores(rel)) continue
-          walk(fullPath, depth + 1)
+          if (ig.ignores(rel + '/')) continue
+          walk(fullPath, depth + 1, ig)
         } else {
+          // Check gitignore for files too
+          if (ig.ignores(rel)) continue
           const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop()!.toLowerCase() : ''
           if (BINARY_EXTENSIONS.has(ext)) continue
-          const rel = relative(projectPath, fullPath).replace(/\\/g, '/')
           results.push({ rel, abs: fullPath })
         }
       }
@@ -249,7 +319,7 @@ ipcMain.handle('claude-code:getProjectFilesFlat', async (_, projectPath: string)
     }
   }
 
-  walk(projectPath, 0)
+  walk(projectPath, 0, rootIg)
   return results
 })
 
@@ -636,5 +706,187 @@ ipcMain.handle(
       }
     }
     return true
+  }
+)
+
+// ─── Read/Write .claude/settings.local.json ───
+
+ipcMain.handle(
+  'claude-code:readProjectClaudeSettings',
+  async (_, projectPath: string) => {
+    const filePath = join(projectPath, '.claude', 'settings.local.json')
+    try {
+      if (!existsSync(filePath)) return null
+      const raw = readFileSync(filePath, 'utf-8')
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+)
+
+ipcMain.handle(
+  'claude-code:writeProjectClaudeSettings',
+  async (_, projectPath: string, settings: any) => {
+    const dirPath = join(projectPath, '.claude')
+    const filePath = join(dirPath, 'settings.local.json')
+    try {
+      const { mkdirSync, writeFileSync } = require('fs')
+      mkdirSync(dirPath, { recursive: true })
+      writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf-8')
+      return true
+    } catch (e: any) {
+      console.error('Failed to write settings.local.json:', e)
+      return false
+    }
+  }
+)
+
+// ─── MCP Server Discovery ───
+
+interface McpServerConfig {
+  command?: string
+  args?: string[]
+  url?: string
+  type?: string // 'stdio' | 'sse'
+}
+
+function readJsonFile(path: string): any {
+  try {
+    if (!existsSync(path)) return null
+    return JSON.parse(readFileSync(path, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
+// Collect mcpServers from all config layers (lowest to highest priority)
+function collectMcpServers(projectPath?: string): Record<string, McpServerConfig> {
+  const merged: Record<string, McpServerConfig> = {}
+  // 1. ~/.claude.json — user/local scope (where `claude mcp add` writes)
+  const claudeJson = readJsonFile(join(homedir(), '.claude.json'))
+  if (claudeJson?.mcpServers) Object.assign(merged, claudeJson.mcpServers)
+  // 2. ~/.claude/settings.json + settings.local.json
+  const globalSettings = readJsonFile(join(homedir(), '.claude', 'settings.json'))
+  if (globalSettings?.mcpServers) Object.assign(merged, globalSettings.mcpServers)
+  const globalLocal = readJsonFile(join(homedir(), '.claude', 'settings.local.json'))
+  if (globalLocal?.mcpServers) Object.assign(merged, globalLocal.mcpServers)
+  // 3. Project .mcp.json — project scope
+  if (projectPath) {
+    const projMcp = readJsonFile(join(projectPath, '.mcp.json'))
+    if (projMcp?.mcpServers) Object.assign(merged, projMcp.mcpServers)
+    // 4. Project .claude/settings.json + settings.local.json
+    const projSettings = readJsonFile(join(projectPath, '.claude', 'settings.json'))
+    if (projSettings?.mcpServers) Object.assign(merged, projSettings.mcpServers)
+    const projLocal = readJsonFile(join(projectPath, '.claude', 'settings.local.json'))
+    if (projLocal?.mcpServers) Object.assign(merged, projLocal.mcpServers)
+  }
+  return merged
+}
+
+ipcMain.handle(
+  'claude-code:getMcpServers',
+  async (_, projectPath?: string) => {
+    const servers = collectMcpServers(projectPath)
+    // Read auth cache to check which servers need authentication
+    const authCache = readJsonFile(join(homedir(), '.claude', 'mcp-needs-auth-cache.json')) || {}
+    return Object.keys(servers).map((name) => ({
+      name,
+      type: servers[name].url ? 'sse' : 'stdio',
+      command: servers[name].command,
+      url: servers[name].url,
+      needsAuth: !!authCache[name]
+    }))
+  }
+)
+
+ipcMain.handle(
+  'claude-code:discoverMcpTools',
+  async (_, options: { projectPath?: string; serverName: string }) => {
+    const servers = collectMcpServers(options.projectPath)
+    const config = servers[options.serverName]
+    if (!config) return { success: false, error: 'Server not found in config' }
+
+    // Only support stdio servers for now
+    if (config.url) {
+      return { success: false, error: 'SSE/HTTP server discovery not yet supported' }
+    }
+    if (!config.command) {
+      return { success: false, error: 'No command configured for server' }
+    }
+
+    return new Promise<{ success: boolean; tools?: string[]; error?: string }>((resolve) => {
+      const timeout = setTimeout(() => {
+        child.kill()
+        resolve({ success: false, error: 'Timeout discovering tools' })
+      }, 15000)
+
+      let buffer = ''
+      let initialized = false
+      let done = false
+
+      const child = spawn(config.command!, config.args || [], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env },
+        shell: process.platform === 'win32'
+      })
+
+      child.stdout.on('data', (data: Buffer) => {
+        buffer += data.toString()
+        // Parse JSON-RPC responses (newline-delimited)
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          try {
+            const msg = JSON.parse(trimmed)
+            if (!initialized && msg.id === 1 && msg.result) {
+              // Initialize response received, now request tools
+              initialized = true
+              const toolsReq = JSON.stringify({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tools/list',
+                params: {}
+              })
+              child.stdin.write(toolsReq + '\n')
+            } else if (msg.id === 2 && msg.result && !done) {
+              // tools/list response
+              done = true
+              clearTimeout(timeout)
+              const tools: string[] = (msg.result.tools || []).map((t: any) => t.name)
+              child.kill()
+              resolve({ success: true, tools })
+            }
+          } catch {
+            // Not valid JSON, skip
+          }
+        }
+      })
+
+      child.on('error', (err) => {
+        clearTimeout(timeout)
+        if (!done) resolve({ success: false, error: err.message })
+      })
+
+      child.on('exit', () => {
+        clearTimeout(timeout)
+        if (!done) resolve({ success: false, error: 'Server exited before responding' })
+      })
+
+      // Send initialize request
+      const initReq = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'inkdown', version: '1.0' }
+        }
+      })
+      child.stdin.write(initReq + '\n')
+    })
   }
 )
