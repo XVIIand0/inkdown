@@ -8,6 +8,7 @@ export interface CenterTab {
   projectId?: string
   noteId?: string
   filePath?: string
+  initialCommand?: string
   language?: string
   dirty?: boolean
   attention?: boolean

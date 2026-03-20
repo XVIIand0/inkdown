@@ -1,23 +1,24 @@
 import { observer } from 'mobx-react-lite'
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useStore } from '@/store/store'
 import { useLocalState } from '@/hooks/useLocalState'
 import { useTranslation } from 'react-i18next'
-import { X, MessageSquare, Brain, FileCode, Terminal, Folder } from 'lucide-react'
+import { X, MessageSquare, Brain, Terminal, Folder } from 'lucide-react'
+import { getFileTypeIcon } from '@/ui/common/FileTypeIcon'
 import React from 'react'
 import { CenterTab } from '@/store/tabs/types'
 import { openMenus, IMenu } from '@/ui/common/Menu'
 import { renderIconPreview } from '../claude-code/IconPicker'
 import { dragState } from './drag-state'
 
-const TabIcon = ({ type }: { type: CenterTab['type'] }) => {
-  switch (type) {
+const TabIcon = ({ tab }: { tab: CenterTab }) => {
+  switch (tab.type) {
     case 'session':
       return <MessageSquare className={'w-3.5 h-3.5 shrink-0'} />
     case 'mind-note':
       return <Brain className={'w-3.5 h-3.5 shrink-0'} />
     case 'code-file':
-      return <FileCode className={'w-3.5 h-3.5 shrink-0'} />
+      return getFileTypeIcon(tab.title || tab.filePath || '', 14)
     case 'ssh-terminal':
       return <Terminal className={'w-3.5 h-3.5 shrink-0'} />
     case 'local-terminal':
@@ -72,6 +73,8 @@ export const TabBar = observer(({ groupId }: TabBarProps) => {
   const activeTabId = group ? group.activeTabId : store.centerTabs.state.activeTabId
 
   const containerRef = useRef<HTMLDivElement>(null)
+  const [editingTabId, setEditingTabId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
   const [state, setState] = useLocalState({
     dragIndex: -1,
     dragging: false,
@@ -94,6 +97,32 @@ export const TabBar = observer(({ groupId }: TabBarProps) => {
       }
     },
     [store]
+  )
+
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent, tab: CenterTab) => {
+      e.stopPropagation()
+      setEditingTabId(tab.id)
+      setEditText(tab.title || '')
+    },
+    []
+  )
+
+  const commitRename = useCallback(
+    (tab: CenterTab) => {
+      const newName = editText.trim()
+      if (!newName || newName === tab.title) {
+        setEditingTabId(null)
+        return
+      }
+      if (tab.type === 'session' && tab.sessionId) {
+        store.claudeCode.renameSession(tab.sessionId, newName)
+      } else {
+        store.centerTabs.updateTabTitle(tab.id, newName)
+      }
+      setEditingTabId(null)
+    },
+    [store, editText]
   )
 
   const borderColorChoices = [
@@ -239,15 +268,36 @@ export const TabBar = observer(({ groupId }: TabBarProps) => {
               'text-xs select-none group relative border-r border-theme ' +
               (isActive
                 ? 'primary-bg-color md-text'
-                : 'text-secondary hover-bg')
+                : 'text-secondary hover-bg opacity-75')
             }
-            style={tab.borderColor ? {
-              boxShadow: `inset 0 -2px 0 ${tab.borderColor}`
-            } : undefined}
+            style={{
+              ...(isActive && !tab.borderColor ? { boxShadow: 'inset 0 -2px 0 var(--accent)' } : {}),
+              ...(tab.borderColor ? { boxShadow: `inset 0 -2px 0 ${tab.borderColor}` } : {})
+            }}
           >
             <TabProjectTag projectId={tab.projectId} hostId={tab.hostId} />
-            <TabIcon type={tab.type} />
-            <span className={'truncate flex-1'}>{tab.title || 'Untitled'}</span>
+            <TabIcon tab={tab} />
+            {editingTabId === tab.id ? (
+              <input
+                className="flex-1 bg-transparent outline-none text-xs md-text min-w-0"
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onBlur={() => commitRename(tab)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitRename(tab)
+                  if (e.key === 'Escape') setEditingTabId(null)
+                }}
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span
+                className={'truncate flex-1'}
+                onDoubleClick={(e) => handleDoubleClick(e, tab)}
+              >
+                {tab.title || 'Untitled'}
+              </span>
+            )}
             {tab.attention && (
               <span className={'w-2 h-2 rounded-full bg-amber-500 shrink-0 animate-pulse'} />
             )}

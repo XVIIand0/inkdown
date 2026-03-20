@@ -181,19 +181,23 @@ export class CenterTabStore extends StructStore<typeof state> {
     this._addTab(tab)
   }
 
-  openLocalTerminalTab(projectPath: string, projectName: string) {
-    const existing = this.state.tabs.find(
-      (t) => t.type === 'local-terminal' && t.filePath === projectPath
-    )
-    if (existing) {
-      this._focusTab(existing.id)
-      return
+  openLocalTerminalTab(projectPath: string, projectName: string, initialCommand?: string) {
+    // If initialCommand is set, always open a new tab (don't reuse)
+    if (!initialCommand) {
+      const existing = this.state.tabs.find(
+        (t) => t.type === 'local-terminal' && t.filePath === projectPath
+      )
+      if (existing) {
+        this._focusTab(existing.id)
+        return
+      }
     }
     const tab: CenterTab = {
       id: crypto.randomUUID(),
       type: 'local-terminal',
       title: `Terminal: ${projectName}`,
-      filePath: projectPath
+      filePath: projectPath,
+      initialCommand
     }
     this._addTab(tab)
   }
@@ -391,6 +395,13 @@ export class CenterTabStore extends StructStore<typeof state> {
     this.setState((s) => {
       const tab = s.tabs.find((t) => t.id === id)
       if (tab) tab.title = title
+    })
+  }
+
+  updateTabSessionId(tabId: string, newSessionId: string) {
+    this.setState((s) => {
+      const tab = s.tabs.find((t) => t.id === tabId)
+      if (tab) tab.sessionId = newSessionId
     })
   }
 

@@ -6,7 +6,6 @@ import {
   FolderOpen,
   Folder,
   MessageSquare,
-  FileText,
   ChevronRight,
   ChevronDown,
   Terminal,
@@ -25,6 +24,7 @@ import {
   Settings,
   FolderCog
 } from 'lucide-react'
+import { getFileTypeIcon } from '@/ui/common/FileTypeIcon'
 import { openMenus } from '@/ui/common/Menu'
 import { IconType, renderIconPreview } from './IconPicker'
 import { openCustomizeDialog } from './CustomizeDialog'
@@ -81,7 +81,7 @@ const FileTreeItem = ({ node, depth = 0 }: { node: IClaudeFileNode; depth?: numb
       style={{ paddingLeft: paddingLeft + 16 }}
       onClick={handleFileClick}
     >
-      <FileText className={'w-3.5 h-3.5 shrink-0 text-blue-400'} />
+      {getFileTypeIcon(node.name, 14)}
       <span className={'truncate'}>{node.name}</span>
     </div>
   )
@@ -183,7 +183,14 @@ const SessionList = observer(() => {
   const store = useStore()
   const { t } = useTranslation()
   const sessions = store.claudeCode.state.sessions
-  const activeSessionId = store.claudeCode.state.activeSessionId
+  // Derive active session from the currently focused tab (not just from sidebar clicks)
+  const activeTab = store.centerTabs.activeTab
+  const tabSessionId = activeTab?.type === 'session' ? activeTab.sessionId : null
+  // Resolve fake new-{uuid} IDs to real session IDs via the mapping
+  const resolvedTabSessionId = tabSessionId
+    ? store.claudeCode.resolveSessionId(tabSessionId)
+    : null
+  const activeSessionId = resolvedTabSessionId || store.claudeCode.state.activeSessionId
   const [searchQuery, setSearchQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -756,7 +763,7 @@ const ProjectItem = observer(({
         text: t('claudeCode.projectSettings'),
         icon: <Settings size={14} />,
         click: openProjectSettings
-      }
+      },
     ]
     openMenus(e, items)
   }, [store, project.path, displayName, t, openProjectSettings])

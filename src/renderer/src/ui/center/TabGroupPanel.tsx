@@ -3,6 +3,7 @@ import { observer } from 'mobx-react-lite'
 import { useStore } from '@/store/store'
 import { useTranslation } from 'react-i18next'
 import { TabBar } from '../tabs/TabBar'
+import { PathBreadcrumb } from '../tabs/PathBreadcrumb'
 import { SessionView, SshTerminalView, LocalTerminalView } from '../claude-code/SessionView'
 import { MindNoteEditor } from '../mind-note/MindNoteEditor'
 import { CodeFileEditor } from '../code-editor/CodeFileEditor'
@@ -164,6 +165,7 @@ export const TabGroupPanel = observer(({ groupId }: TabGroupPanelProps) => {
       onDrop={handleDrop}
     >
       <TabBar groupId={groupId} />
+      {activeTab?.type === 'code-file' && <PathBreadcrumb groupId={groupId} />}
       <div className="flex-1 overflow-hidden">
         {!activeTab && (
           <div className="flex-1 flex items-center justify-center h-full text-secondary">
@@ -190,7 +192,7 @@ export const TabGroupPanel = observer(({ groupId }: TabGroupPanelProps) => {
           <SshTerminalView hostId={activeTab.hostId} />
         )}
         {activeTab?.type === 'local-terminal' && activeTab.filePath && (
-          <LocalTerminalView projectPath={activeTab.filePath} />
+          <LocalTerminalView projectPath={activeTab.filePath} initialCommand={activeTab.initialCommand} />
         )}
       </div>
       {renderDropOverlay()}
