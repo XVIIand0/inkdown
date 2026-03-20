@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '@/store/store'
 import { Save } from 'lucide-react'
 import { createEditor, Descendant, Editor, Node } from 'slate'
@@ -206,20 +206,43 @@ function SimpleLeaf(props: RenderLeafProps) {
 
 const defaultValue: Descendant[] = [EditorUtils.p]
 
+// In-memory cache: survives unmount/remount, prevents race between async DB save and load
+const editorCache = new Map<string, { title: string; children: Descendant[] }>()
+
 export const MindNoteEditor = observer(({ noteId }: { noteId: string }) => {
   const store = useStore()
-  const [title, setTitle] = useState('')
+
+  // Check cache synchronously during render — must happen BEFORE <Slate> mounts,
+  // because <Slate> does `editor.children = initialValue` on first mount and
+  // would overwrite any effect-based restoration.
+  const cachedData = useMemo(() => {
+    const cached = editorCache.get(noteId)
+    if (cached) {
+      editorCache.delete(noteId)
+      return cached
+    }
+    return null
+  }, [noteId])
+
+  const [title, setTitle] = useState(cachedData?.title || '')
   const [saving, setSaving] = useState(false)
-  const [loaded, setLoaded] = useState(false)
+  const [loaded, setLoaded] = useState(!!cachedData)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const titleRef = useRef(title)
   const editorRef = useRef<Editor | null>(null)
   const firstRef = useRef(true)
+  const noteIdRef = useRef(noteId)
+  noteIdRef.current = noteId
 
   if (!editorRef.current) {
     editorRef.current = createMindNoteEditor()
   }
   const editor = editorRef.current
+
+  // The initial value for <Slate>: use cache if available, otherwise default empty
+  const slateInitialValue = useMemo(() => {
+    return cachedData?.children || defaultValue
+  }, [cachedData])
 
   titleRef.current = title
 
@@ -265,27 +288,57 @@ export const MindNoteEditor = observer(({ noteId }: { noteId: string }) => {
     }
   }, [noteId, store.mindNote, getMarkdownFromEditor])
 
+  // Sync editor state to in-memory cache on every content change.
+  // This cache survives unmount and is read synchronously on next mount
+  // so <Slate initialValue={...}> gets the right data.
+  const syncCache = useCallback(() => {
+    editorCache.set(noteIdRef.current, {
+      title: titleRef.current,
+      children: JSON.parse(JSON.stringify(editor.children))
+    })
+  }, [editor])
+
   const scheduleSave = useCallback(() => {
+    syncCache()
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current)
     }
     saveTimerRef.current = setTimeout(() => {
       doSave()
     }, 800)
-  }, [doSave])
+  }, [doSave, syncCache])
 
+  const doSaveRef = useRef(doSave)
+  doSaveRef.current = doSave
+  const syncCacheRef = useRef(syncCache)
+  syncCacheRef.current = syncCache
+
+  // On unmount: sync cache (synchronous) then fire async DB save
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
       }
+      syncCacheRef.current()
+      doSaveRef.current()
     }
   }, [])
 
+  // Load from DB (only when no cached data was available)
   useEffect(() => {
+    if (cachedData) {
+      // Already restored from cache — just enable editing
+      firstRef.current = true
+      setTimeout(() => {
+        firstRef.current = false
+      }, 100)
+      return
+    }
+
     let cancelled = false
     setLoaded(false)
     firstRef.current = true
+
     store.mindNote.getNote(noteId).then(async (note) => {
       if (cancelled || !note) return
       setTitle(note.title || '')
@@ -317,7 +370,7 @@ export const MindNoteEditor = observer(({ noteId }: { noteId: string }) => {
     return () => {
       cancelled = true
     }
-  }, [noteId, store.mindNote, editor, store.worker])
+  }, [noteId, store.mindNote, editor, store.worker, cachedData])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -336,6 +389,7 @@ export const MindNoteEditor = observer(({ noteId }: { noteId: string }) => {
   const handleTitleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setTitle(e.target.value)
+      titleRef.current = e.target.value
       scheduleSave()
     },
     [scheduleSave]
@@ -405,7 +459,7 @@ export const MindNoteEditor = observer(({ noteId }: { noteId: string }) => {
       </div>
       <div className={'flex-1 overflow-y-auto'}>
         <div className={'max-w-[796px] mx-auto px-8 py-4'}>
-          <Slate editor={editor} initialValue={defaultValue} onChange={onChange}>
+          <Slate editor={editor} initialValue={slateInitialValue} onChange={onChange}>
             <Editable
               decorate={high}
               spellCheck={false}
