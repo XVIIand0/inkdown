@@ -445,7 +445,7 @@ const localTerminalCache = new Map<
   }
 >()
 
-export const LocalTerminalView = ({ projectPath }: { projectPath: string }) => {
+export const LocalTerminalView = ({ projectPath, initialCommand }: { projectPath: string; initialCommand?: string }) => {
   const { t } = useTranslation()
   const terminalRef = useRef<HTMLDivElement>(null)
   const terminalIdRef = useRef<string | null>(null)
@@ -615,6 +615,15 @@ export const LocalTerminalView = ({ projectPath }: { projectPath: string }) => {
           if (result.success && result.terminalId) {
             terminalIdRef.current = result.terminalId
             entry.terminalId = result.terminalId
+            // Send initial command if provided
+            if (initialCommand) {
+              setTimeout(() => {
+                ipcRenderer.invoke('claude-code:terminalInput', {
+                  sessionId: result.terminalId,
+                  data: initialCommand + '\r'
+                })
+              }, 300)
+            }
           } else if (!result.success) {
             updateStatus('error', result.error || 'Failed to spawn terminal')
           }
@@ -692,10 +701,12 @@ export const LocalTerminalView = ({ projectPath }: { projectPath: string }) => {
 
 const LiveView = ({
   sessionId,
+  projectId,
   projectPath,
   hostId
 }: {
   sessionId: string
+  projectId?: string
   projectPath: string
   hostId?: string
 }) => {
@@ -871,14 +882,96 @@ const LiveView = ({
     // Listen for terminal output
     const isNewConversation = sessionId.startsWith('new-')
     let hasRefreshedSessions = false
+    // For new conversations: poll until we find the real session ID
+    let pollTimer: ReturnType<typeof setInterval> | null = null
+    let pollCount = 0
+    const MAX_POLLS = 15
+    const POLL_INTERVAL = 2000
+    const tryFindNewSession = async () => {
+      pollCount++
+      try {
+        // Refresh using the projectId from the tab, not relying on activeProjectId
+        const pid = projectId || store.claudeCode.state.activeProjectId
+        const hid = hostId || store.claudeCode.state.activeHostId
+        if (!pid) return false
+
+        let sessions: IClaudeSession[]
+        if (hid) {
+          sessions = await ipcRenderer.invoke('ssh-host:getRemoteSessions', hid, pid)
+        } else {
+          sessions = await ipcRenderer.invoke('claude-code:getSessions', pid)
+        }
+        // Also update sidebar
+        store.claudeCode.setState({ sessions: sessions || [] })
+
+        // Find sessions that don't already have an open tab
+        const openSessionIds = new Set(
+          store.centerTabs.state.tabs
+            .filter((t) => t.type === 'session' && t.sessionId !== sessionId)
+            .map((t) => t.sessionId)
+        )
+        // Also exclude sessions already mapped from other new-* tabs
+        const mappedRealIds = new Set(Object.values(store.claudeCode.state.newSessionMap))
+
+        // Find the most recent session that isn't already open or mapped
+        const candidates = (sessions || [])
+          .filter((s: IClaudeSession) =>
+            !openSessionIds.has(s.id) && !mappedRealIds.has(s.id)
+          )
+          .sort((a: IClaudeSession, b: IClaudeSession) =>
+            (b.lastTimestamp || 0) - (a.lastTimestamp || 0)
+          )
+
+        const newSession = candidates[0]
+        if (newSession) {
+          // Update tab title
+          const tab = store.centerTabs.state.tabs.find(
+            (t) => t.type === 'session' && t.sessionId === sessionId
+          )
+          if (tab) {
+            store.centerTabs.updateTabTitle(
+              tab.id,
+              newSession.firstMessage || 'Session'
+            )
+          }
+          // Register fake→real mapping for sidebar highlight
+          store.claudeCode.registerNewSession(sessionId, newSession.id)
+          // Ensure sidebar shows this project's sessions and marks the new one active
+          store.claudeCode.setState({
+            activeProjectId: pid,
+            activeHostId: hid || null,
+            activeSessionId: newSession.id
+          })
+          return true
+        }
+      } catch {
+        // ignore
+      }
+      return false
+    }
+
+    const startPollingForNewSession = () => {
+      if (pollTimer) return
+      pollTimer = setInterval(async () => {
+        const found = await tryFindNewSession()
+        if (found && pollTimer) {
+          clearInterval(pollTimer)
+          pollTimer = null
+        }
+        if (pollCount >= MAX_POLLS && pollTimer) {
+          clearInterval(pollTimer)
+          pollTimer = null
+        }
+      }, POLL_INTERVAL)
+    }
+
     const onData = (_: unknown, payload: { sessionId: string; data: string }) => {
       if (payload.sessionId === sessionId) {
         term.write(payload.data)
         updateStatus('running')
-        // Refresh sidebar session list on first output from new conversations
         if (isNewConversation && !hasRefreshedSessions) {
           hasRefreshedSessions = true
-          store.claudeCode.refreshSessions()
+          startPollingForNewSession()
         }
       }
     }
@@ -888,6 +981,7 @@ const LiveView = ({
       payload: { sessionId: string; code: number; error?: string }
     ) => {
       if (payload.sessionId === sessionId) {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
         if (payload.error) {
           updateStatus('error', payload.error)
           term.writeln(`\r\n\x1b[31m${payload.error}\x1b[0m`)
@@ -896,6 +990,16 @@ const LiveView = ({
           term.writeln(
             `\r\n\x1b[90m[Process exited with code ${payload.code}]\x1b[0m`
           )
+        }
+        // Now safe to update sessionId (terminal is dead, no re-render risk)
+        const realId = store.claudeCode.resolveSessionId(sessionId)
+        if (realId !== sessionId) {
+          const tab = store.centerTabs.state.tabs.find(
+            (t) => t.type === 'session' && t.sessionId === sessionId
+          )
+          if (tab) {
+            store.centerTabs.updateTabSessionId(tab.id, realId)
+          }
         }
       }
     }
@@ -981,6 +1085,7 @@ const LiveView = ({
     resizeObserver.observe(container)
 
     return () => {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
       // Detach listeners but do NOT kill the process or dispose the terminal
       ipcRenderer.removeListener('claude-code:terminal-data', onData)
       ipcRenderer.removeListener('claude-code:terminal-exit', onExit)
@@ -1256,6 +1361,7 @@ export const SessionView = observer(({ sessionId, projectId, hostId }: SessionVi
         <LiveView
           key={effectiveSessionId}
           sessionId={effectiveSessionId}
+          projectId={effectiveProjectId || undefined}
           projectPath={activeProject.path}
           hostId={hostId}
         />

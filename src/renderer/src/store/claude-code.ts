@@ -39,7 +39,8 @@ const state = {
   pinnedSessionIds: [] as string[],
   projectConfigs: {} as Record<string, { iconType: string; iconValue?: string; sort: number; displayName?: string }>,
   showFileFinder: false,
-  recentFiles: [] as Array<{ rel: string; abs: string; projectId: string; timestamp: number }>
+  recentFiles: [] as Array<{ rel: string; abs: string; projectId: string; timestamp: number }>,
+  newSessionMap: {} as Record<string, string>  // fake sessionId -> real sessionId
 }
 
 const dialogData = {
@@ -604,6 +605,16 @@ export class ClaudeCodeStore extends StructStore<typeof state> {
     if (Array.isArray(saved)) {
       this.setState({ recentFiles: saved })
     }
+  }
+
+  registerNewSession(fakeId: string, realId: string) {
+    this.setState((s) => {
+      s.newSessionMap[fakeId] = realId
+    })
+  }
+
+  resolveSessionId(id: string): string {
+    return this.state.newSessionMap[id] || id
   }
 
   get activeProject(): IClaudeProject | null {
